@@ -1,0 +1,29 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# AI models
+models/
+*.gguf
+*.safetensors
+
+# Private data
+memory/*.db
+memory/*.sqlite
+memory/*.sqlite3
+recordings/
+logs/
+
+# Editors
+.vscode/
+.idea/
