@@ -9,6 +9,7 @@ Quick manual tests, from the project folder:
 
     python -m backend.speech_output "Good evening. All systems are ready."
     python -m backend.speech_output --compare     # hear speed/rhythm options
+    python -m backend.speech_output --names       # hear ways to say your name
 
 How playback works (default, PARKER_AUDIO=stream): one audio stream is opened
 when PARKER starts and kept open, so the sound device never falls asleep
@@ -22,6 +23,7 @@ from __future__ import annotations
 import io
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -35,10 +37,17 @@ VOICES_DIR = Path(os.environ.get("PARKER_VOICES_DIR", PROJECT_ROOT / "voices"))
 AUDIO_BACKEND = os.environ.get("PARKER_AUDIO", "stream")  # "stream" or "winsound"
 # 1.0 = the voice's normal pace; 0.9 is a little slower, 1.1 a little faster.
 SPEED = float(os.environ.get("PARKER_VOICE_SPEED", "1.0"))
-# Rhythm variation between words (Piper's noise_w). Unset = the voice's default.
-# Higher (e.g. 0.8) sounds less robotic; too high sounds uneven.
-_variation = os.environ.get("PARKER_VOICE_VARIATION")
-VARIATION = float(_variation) if _variation else None
+# Rhythm variation between words (Piper's noise_w). 0.8 was picked by ear as
+# the most natural for Alba; higher sounds uneven, lower more robotic.
+VARIATION = float(os.environ.get("PARKER_VOICE_VARIATION", "0.8"))
+# British pronunciation rules misread some names, so the voice is given a
+# respelling while the screen keeps the real spelling. Pick one by ear with:
+#     python -m backend.speech_output --names
+OWNER_NAME = os.environ.get("PARKER_OWNER_NAME", "Raunak")
+OWNER_SPOKEN = os.environ.get("PARKER_OWNER_SPOKEN") or (
+    "Rawnuck" if OWNER_NAME == "Raunak" else OWNER_NAME
+)
+DEFAULT_PRONUNCIATIONS = {OWNER_NAME: OWNER_SPOKEN} if OWNER_SPOKEN != OWNER_NAME else {}
 # Silence before each reply so the audio device is awake for the first word.
 # Whole-reply playback needs about 1 s; the always-open stream needs very little.
 _lead_in = os.environ.get("PARKER_VOICE_LEAD_IN")
@@ -170,6 +179,7 @@ class Speaker:
         speed: float = SPEED,
         variation: float | None = VARIATION,
         make_config: Callable = piper_synthesis_config,
+        pronunciations: dict[str, str] | None = None,
     ) -> None:
         if lead_in_seconds is not None and lead_in_seconds < 0:
             raise ValueError("lead_in_seconds must not be negative")
@@ -185,6 +195,9 @@ class Speaker:
                 f"{voice_name} --data-dir voices"
             )
         self.voice_name = voice_name
+        self.pronunciations = (
+            DEFAULT_PRONUNCIATIONS if pronunciations is None else pronunciations
+        )
         self._voice = load_voice(model_path)  # Slow part: done once, not per reply.
         voice_config = getattr(self._voice, "config", None)
         self.sample_rate = getattr(voice_config, "sample_rate", 22050)
@@ -252,11 +265,16 @@ class Speaker:
         if self._stream is not None and hasattr(self._stream, "close"):
             self._stream.close()
 
-    @staticmethod
-    def _check(text: str) -> str:
+    def _check(self, text: str) -> str:
         if not text or not text.strip():
             raise ValueError("text must not be empty")
-        return text.strip()
+        return self.respell(text.strip())
+
+    def respell(self, text: str) -> str:
+        """Swap words the voice mispronounces for respellings ("Raunak" -> "Rawnuck")."""
+        for word, spoken in self.pronunciations.items():
+            text = re.sub(rf"\b{re.escape(word)}\b", spoken, text, flags=re.IGNORECASE)
+        return text
 
 
 COMPARE_SENTENCE = (
@@ -269,6 +287,19 @@ COMPARE_SETTINGS = [
     ("3  more natural rhythm", 1.0, 0.8),
     ("4  slower + natural rhythm", 0.9, 0.8),
 ]
+
+
+NAME_CANDIDATES = ["Raunak", "Rawnuck", "Rownuck", "Raw-nuk", "Ronuck", "Rawnak"]
+
+
+def compare_names() -> None:
+    """Say the owner's name several ways so the closest can be chosen."""
+    speaker = Speaker(pronunciations={})
+    for number, spelling in enumerate(NAME_CANDIDATES, start=1):
+        print(f"Option {number}: {spelling}   (PARKER_OWNER_SPOKEN={spelling})")
+        speaker.speak(f"Good evening, {spelling}. Nice to see you.")
+        time.sleep(0.6)
+    speaker.close()
 
 
 def compare() -> None:
@@ -286,6 +317,8 @@ if __name__ == "__main__":
     try:
         if sys.argv[1:] == ["--compare"]:
             compare()
+        elif sys.argv[1:] == ["--names"]:
+            compare_names()
         else:
             sentence = " ".join(sys.argv[1:]) or "Good evening. I'm PARKER. All systems are ready."
             speaker = Speaker()

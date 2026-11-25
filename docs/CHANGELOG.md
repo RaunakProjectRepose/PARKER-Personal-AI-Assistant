@@ -12,7 +12,11 @@ All notable changes to PARKER. Dates are when the change reached `main`.
 
 ### Added
 - `PARKER_VOICE_SPEED` and `PARKER_VOICE_VARIATION` to tune pace and rhythm, and
-  `python -m backend.speech_output --compare` to pick by ear.
+  `python -m backend.speech_output --compare` to pick by ear. Rhythm variation 0.8 is now the
+  default (chosen by ear).
+- Name pronunciation: the voice says a respelling of the owner's name ("Rawnuck" for Raunak)
+  while the screen keeps the real spelling. `PARKER_OWNER_SPOKEN` sets it and
+  `python -m backend.speech_output --names` plays options.
 - `--timing` shows thinking and speaking times per reply.
 - `PARKER_AUDIO=winsound` to fall back to the old playback; used automatically if the stream
   can't open.

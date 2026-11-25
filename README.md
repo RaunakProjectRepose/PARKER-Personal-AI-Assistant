@@ -74,6 +74,7 @@ Each part can also be tried on its own:
 python -m backend.brain "Who are you?"
 python -m backend.speech_output "Good evening. All systems are ready."
 python -m backend.speech_output --compare     # hear speed and rhythm options
+python -m backend.speech_output --names       # hear ways to pronounce your name
 python -m backend.speech_input
 ```
 

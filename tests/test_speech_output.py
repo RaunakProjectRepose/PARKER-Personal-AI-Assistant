@@ -63,7 +63,8 @@ def make_speaker(voices_dir, played=None, voice=None, lead_in=0.0):
         return voice
 
     speaker = Speaker(
-        VOICE, voices_dir, load_voice=load, play=played.append, lead_in_seconds=lead_in
+        VOICE, voices_dir, load_voice=load, play=played.append, lead_in_seconds=lead_in,
+        variation=None, pronunciations={},
     )
     return speaker, voice, played, loaded
 
@@ -127,6 +128,8 @@ def test_negative_lead_in_is_rejected(voices_dir):
 
 def stream_speaker(voices_dir, **kwargs):
     voice, stream = FakeVoice(), FakeStream()
+    kwargs.setdefault("pronunciations", {})
+    kwargs.setdefault("variation", None)
     speaker = Speaker(
         VOICE, voices_dir, load_voice=lambda p: voice, stream_player=stream, audio="stream", **kwargs
     )
@@ -182,10 +185,35 @@ def test_winsound_mode_can_be_chosen(voices_dir):
 
 # ---- speed and rhythm --------------------------------------------------------
 
-def test_default_settings_leave_the_voice_untouched(voices_dir):
-    speaker, voice, _ = stream_speaker(voices_dir)
+def test_neutral_settings_leave_the_voice_untouched(voices_dir):
+    speaker, voice, _ = stream_speaker(voices_dir, speed=1.0, variation=None)
     speaker.speak("Hi")
     assert voice.configs == [None]
+
+
+def test_default_rhythm_is_the_one_picked_by_ear():
+    from backend.speech_output import VARIATION
+
+    assert VARIATION == 0.8  # option 3 of --compare, chosen on 25 Nov 2026
+
+
+# ---- name pronunciation ------------------------------------------------------
+
+def test_name_is_respelled_for_the_voice_only(voices_dir):
+    speaker, voice, _ = stream_speaker(voices_dir, pronunciations={"Raunak": "Rawnuck"})
+    speaker.speak("Good evening, Raunak. raunak's plan is ready.")
+    assert voice.texts == ["Good evening, Rawnuck. Rawnuck's plan is ready."]
+
+
+def test_respelling_only_matches_whole_words(voices_dir):
+    speaker, voice, _ = stream_speaker(voices_dir, pronunciations={"Raunak": "Rawnuck"})
+    assert speaker.respell("Raunaksingh and Raunak") == "Raunaksingh and Rawnuck"
+
+
+def test_default_respelling_for_the_owner():
+    from backend.speech_output import DEFAULT_PRONUNCIATIONS
+
+    assert DEFAULT_PRONUNCIATIONS == {"Raunak": "Rawnuck"}
 
 
 def test_speed_and_variation_reach_piper(voices_dir):
