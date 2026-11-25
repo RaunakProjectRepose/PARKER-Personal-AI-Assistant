@@ -213,7 +213,7 @@ def test_respelling_only_matches_whole_words(voices_dir):
 def test_default_respelling_for_the_owner():
     from backend.speech_output import DEFAULT_PRONUNCIATIONS
 
-    assert DEFAULT_PRONUNCIATIONS == {"Raunak": "Rawnuck"}
+    assert DEFAULT_PRONUNCIATIONS == {"Raunak": "Rawnak"}  # picked by ear, 25 Nov 2026
 
 
 def test_speed_and_variation_reach_piper(voices_dir):

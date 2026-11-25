@@ -45,7 +45,7 @@ VARIATION = float(os.environ.get("PARKER_VOICE_VARIATION", "0.8"))
 #     python -m backend.speech_output --names
 OWNER_NAME = os.environ.get("PARKER_OWNER_NAME", "Raunak")
 OWNER_SPOKEN = os.environ.get("PARKER_OWNER_SPOKEN") or (
-    "Rawnuck" if OWNER_NAME == "Raunak" else OWNER_NAME
+    "Rawnak" if OWNER_NAME == "Raunak" else OWNER_NAME
 )
 DEFAULT_PRONUNCIATIONS = {OWNER_NAME: OWNER_SPOKEN} if OWNER_SPOKEN != OWNER_NAME else {}
 # Silence before each reply so the audio device is awake for the first word.
@@ -271,7 +271,7 @@ class Speaker:
         return self.respell(text.strip())
 
     def respell(self, text: str) -> str:
-        """Swap words the voice mispronounces for respellings ("Raunak" -> "Rawnuck")."""
+        """Swap words the voice mispronounces for respellings ("Raunak" -> "Rawnak")."""
         for word, spoken in self.pronunciations.items():
             text = re.sub(rf"\b{re.escape(word)}\b", spoken, text, flags=re.IGNORECASE)
         return text
@@ -289,7 +289,7 @@ COMPARE_SETTINGS = [
 ]
 
 
-NAME_CANDIDATES = ["Raunak", "Rawnuck", "Rownuck", "Raw-nuk", "Ronuck", "Rawnak"]
+NAME_CANDIDATES = ["Raunak", "Rawnak", "Rawnuck", "Rownuck", "Raw-nuk", "Ronuck"]
 
 
 def compare_names() -> None:

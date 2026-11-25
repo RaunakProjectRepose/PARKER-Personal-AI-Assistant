@@ -2,7 +2,7 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
-## Unreleased – Smoother voice
+## 2026-11-25 – Smoother voice
 
 ### Changed
 - Speech now plays through one always-open audio stream (`sounddevice`) instead of a new
@@ -14,7 +14,7 @@ All notable changes to PARKER. Dates are when the change reached `main`.
 - `PARKER_VOICE_SPEED` and `PARKER_VOICE_VARIATION` to tune pace and rhythm, and
   `python -m backend.speech_output --compare` to pick by ear. Rhythm variation 0.8 is now the
   default (chosen by ear).
-- Name pronunciation: the voice says a respelling of the owner's name ("Rawnuck" for Raunak)
+- Name pronunciation: the voice says a respelling of the owner's name ("Rawnak" for Raunak, picked by ear)
   while the screen keeps the real spelling. `PARKER_OWNER_SPOKEN` sets it and
   `python -m backend.speech_output --names` plays options.
 - `--timing` shows thinking and speaking times per reply.
