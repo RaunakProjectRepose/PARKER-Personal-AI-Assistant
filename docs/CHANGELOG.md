@@ -13,6 +13,10 @@ All notable changes to PARKER. Dates are when the change reached `main`.
   mentioned on the next start.
 - `/reminders`, `/reminder cancel <id>`, and a Reminders list in the Agenda drawer (Delete to
   cancel).
+- PARKER's own reminder pop-up: a golden card in the bottom-right corner, on top of every app
+  without taking keyboard focus, with Done and Snooze 10 min; it stays until answered. Added
+  after the first laptop test showed no Windows notification, which can be switched off for
+  "Python" or hidden by Windows' focus rules. The taskbar button also flashes.
 - Questions such as "remind me what my exam date is" still go to the model; the model is told it
   cannot set reminders itself.
 

@@ -7,8 +7,8 @@ no subscriptions, and nothing you say leaves the machine.
 ## What works today (Milestones 1–3, M4 in progress)
 
 - **Reminders** — "remind me in 20 minutes to stretch", "remind me at 6 pm to call Mum",
-  "remind me tomorrow at 9 to submit the assignment". Spoken aloud on time, even from the tray;
-  missed ones are mentioned when PARKER next starts.
+  "remind me tomorrow at 9 to submit the assignment". Spoken aloud on time with a golden pop-up
+  (Done / Snooze 10 min), even from the tray; missed ones are shown when PARKER next starts.
 - **Opens apps and folders** — "open VS Code", "launch Chrome", "open my Downloads". Only Start
   Menu apps, a few Windows tools, your standard folders and entries you add; the model never
   runs anything.
@@ -162,6 +162,7 @@ frontend/
   worker.py          # runs the model, microphone and voice off the window thread
   orb.py             # the animated status orb
   icons.py           # line icons drawn in code
+  toast.py           # the reminder pop-up
   hotkey.py          # the system-wide talk shortcut (Windows RegisterHotKey)
   autostart.py       # optional "Start with Windows"
 parker.pyw           # double-click launcher without a console window

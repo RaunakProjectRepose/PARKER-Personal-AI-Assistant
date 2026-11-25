@@ -97,6 +97,7 @@ from frontend.hotkey import (
 )
 from frontend.icons import icon
 from frontend.orb import StatusOrb
+from frontend.toast import ReminderToast
 from frontend.worker import Worker, default_listener, default_speaker
 
 MAX_RECORDING_MS = 30_000  # Recording always stops by itself after 30 s.
@@ -519,6 +520,7 @@ class MainWindow(QMainWindow):
         self.assistant = assistant
         self.apps = apps
         self.reminders = reminders
+        self.toasts: list[ReminderToast] = []
         self.settings = settings or QSettings("PARKER", "PARKER")
         self.start_hidden = start_hidden
         self._quitting = False
@@ -787,9 +789,37 @@ class MainWindow(QMainWindow):
             text = announcement(reminder, now)
             self.chat.add("parker", text)
             self.say_requested.emit(text)  # spoken even when the window is hidden
+            self.show_toast(reminder.text, "" if text.startswith("Reminder:") else
+                            f"Missed earlier: due {reminder.when(now).replace('at ', '')}")
+            # Also try Windows' own notification, and flash the taskbar button.
             if self.tray is not None:
                 self.tray.showMessage("PARKER reminder", reminder.text, tray_icon("speaking"), 10_000)
+            QApplication.alert(self)
         if fired:
+            self.agenda_panel.refresh()
+
+    def show_toast(self, text: str, when: str = "") -> ReminderToast:
+        """PARKER's own pop-up: works even if Windows notifications are off."""
+        toast = ReminderToast(text, when)
+        toast.done.connect(self._toast_closed)
+        toast.snoozed.connect(self._toast_snoozed)
+        self.toasts.append(toast)
+        toast.place(len(self.toasts) - 1)
+        toast.show()
+        return toast
+
+    def _toast_closed(self, toast) -> None:
+        if toast in self.toasts:
+            self.toasts.remove(toast)
+        for index, other in enumerate(self.toasts):
+            other.place(index)
+
+    def _toast_snoozed(self, toast, text: str) -> None:
+        self._toast_closed(toast)
+        if self.reminders is not None:
+            due = self._now().replace(microsecond=0) + timedelta(minutes=10)
+            self.reminders.add(due, text)
+            self.chat.add("note", f"Snoozed: I'll remind you again at {due:%H:%M}.")
             self.agenda_panel.refresh()
 
     # ---- tray and hotkey -------------------------------------------------------
@@ -1034,6 +1064,8 @@ class MainWindow(QMainWindow):
             self.hotkey.stop()
         if self.tray is not None:
             self.tray.hide()
+        for toast in list(self.toasts):
+            toast.close()
         self.worker.stop_listening()
         self.worker.stop_speaking()
         if self._thread is not None:

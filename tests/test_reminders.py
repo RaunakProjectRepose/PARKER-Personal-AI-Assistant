@@ -215,3 +215,67 @@ def test_desktop_app_announces_reminders_even_when_hidden(tmp_path):
     assert ("parker", "Reminder: stretch.") in window.chat.messages
     window.check_reminders()
     assert spoken.count("Reminder: stretch.") == 1
+
+
+def test_reminder_shows_parkers_own_popup_with_done_and_snooze(tmp_path):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6.QtWidgets")
+    from PySide6.QtCore import QSettings, Qt
+    from PySide6.QtWidgets import QApplication
+
+    from backend.agenda import Agenda
+    from backend.memory import Memory
+    from frontend.app import MainWindow
+
+    QApplication.instance() or QApplication([])
+    clock = [NOW]
+    store = Reminders(":memory:")
+    window = MainWindow(
+        Assistant(generate=lambda m, h, **k: "ok", memory=Memory(":memory:"), agenda=Agenda(":memory:"),
+                  now=lambda: clock[0]),
+        make_speaker=None, make_listener=None, threaded=False, now=lambda: clock[0],
+        tray_available=lambda: False, make_hotkey=None,
+        settings=QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat),
+        reminders=store,
+    )
+    store.add(at(25, 14, 1), "stretch")
+    store.add(at(25, 14, 1), "drink water")
+    clock[0] = at(25, 14, 1)
+    window.check_reminders()
+
+    assert [t.text for t in window.toasts] == ["stretch", "drink water"]
+    first, second = window.toasts
+    assert first.isVisible()
+    assert first.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
+    assert first.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+    assert second.y() < first.y()  # stacked upwards
+
+    first.done_button.click()
+    assert [t.text for t in window.toasts] == ["drink water"]
+
+    second.snooze_button.click()
+    assert window.toasts == []
+    assert [(r.due, r.text) for r in store.upcoming()] == [(at(25, 14, 11), "drink water")]
+    assert ("note", "Snoozed: I'll remind you again at 14:11.") in window.chat.messages
+
+
+def test_missed_reminder_popup_says_when_it_was_due(tmp_path):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6.QtWidgets")
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QApplication, QLabel
+
+    from frontend.app import MainWindow
+
+    QApplication.instance() or QApplication([])
+    store = Reminders(":memory:")
+    store.add(at(25, 9), "take vitamins")
+    window = MainWindow(
+        Assistant(generate=lambda m, h, **k: "ok", now=lambda: NOW),
+        make_speaker=None, make_listener=None, threaded=False, now=lambda: NOW,
+        tray_available=lambda: False, make_hotkey=None,
+        settings=QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat),
+        reminders=store,
+    )
+    labels = [l.text() for l in window.toasts[0].findChildren(QLabel)]
+    assert "Missed earlier: due 09:00" in labels
