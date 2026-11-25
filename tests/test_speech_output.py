@@ -31,7 +31,7 @@ def voices_dir(tmp_path):
     return tmp_path
 
 
-def make_speaker(voices_dir, played=None, voice=None):
+def make_speaker(voices_dir, played=None, voice=None, lead_in=0.0):
     voice = voice or FakeVoice()
     played = played if played is not None else []
     loaded = []
@@ -40,7 +40,9 @@ def make_speaker(voices_dir, played=None, voice=None):
         loaded.append(path)
         return voice
 
-    speaker = Speaker(VOICE, voices_dir, load_voice=load, play=played.append)
+    speaker = Speaker(
+        VOICE, voices_dir, load_voice=load, play=played.append, lead_in_seconds=lead_in
+    )
     return speaker, voice, played, loaded
 
 
@@ -84,3 +86,16 @@ def test_missing_config_file_is_reported(voices_dir):
     (voices_dir / f"{VOICE}.onnx.json").unlink()
     with pytest.raises(SpeechError, match=r"\.onnx\.json"):
         make_speaker(voices_dir)
+
+
+def test_lead_in_silence_is_added_before_speech(voices_dir):
+    speaker, _, _, _ = make_speaker(voices_dir, lead_in=0.5)
+    with wave.open(io.BytesIO(speaker.synthesize("Hello."))) as wav:
+        assert wav.getnframes() == 2205 + 11025  # speech + 0.5 s of silence
+        assert wav.getframerate() == 22050
+        assert wav.readframes(11025) == b"\x00\x00" * 11025
+
+
+def test_negative_lead_in_is_rejected(voices_dir):
+    with pytest.raises(ValueError):
+        make_speaker(voices_dir, lead_in=-1)
