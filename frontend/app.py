@@ -791,9 +791,8 @@ class MainWindow(QMainWindow):
             self.say_requested.emit(text)  # spoken even when the window is hidden
             self.show_toast(reminder.text, "" if text.startswith("Reminder:") else
                             f"Missed earlier: due {reminder.when(now).replace('at ', '')}")
-            # Also try Windows' own notification, and flash the taskbar button.
-            if self.tray is not None:
-                self.tray.showMessage("PARKER reminder", reminder.text, tray_icon("speaking"), 10_000)
+            # The golden card replaces Windows' notification (owner's choice, so a
+            # reminder never shows twice); the taskbar button still flashes.
             QApplication.alert(self)
         if fired:
             self.agenda_panel.refresh()

@@ -279,3 +279,31 @@ def test_missed_reminder_popup_says_when_it_was_due(tmp_path):
     )
     labels = [l.text() for l in window.toasts[0].findChildren(QLabel)]
     assert "Missed earlier: due 09:00" in labels
+
+
+
+def test_reminders_do_not_also_send_a_windows_notification(tmp_path):
+    """The golden card is the only pop-up, so a reminder never shows twice."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6.QtWidgets")
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QApplication
+
+    from frontend.app import MainWindow
+
+    QApplication.instance() or QApplication([])
+    store = Reminders(":memory:")
+    window = MainWindow(
+        Assistant(generate=lambda m, h, **k: "ok", now=lambda: NOW),
+        make_speaker=None, make_listener=None, threaded=False, now=lambda: NOW,
+        tray_available=lambda: True, make_hotkey=None,
+        settings=QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat),
+        reminders=store,
+    )
+    shown = []
+    window.tray.showMessage = lambda *a: shown.append(a)
+    store.add(NOW, "stretch")
+    window.check_reminders()
+    assert [t.text for t in window.toasts] == ["stretch"]
+    assert shown == []
+    window.quit_app()
