@@ -6,8 +6,9 @@ no subscriptions, and nothing you say leaves the machine.
 
 ## What works today (Milestones 1–3)
 
-- **Desktop app** — a warm, golden window with a glowing status orb (listening, thinking,
-  speaking), a chat transcript, a Talk button, and panels to manage memories and the agenda.
+- **Desktop app** — a calm, golden window: a glowing status orb (listening, thinking, speaking),
+  a centred conversation, one message bar with a mic button, and Agenda and Memories in a
+  drawer that slides in only when you want it.
 
 
 - **Talk or type** — push-to-talk speech recognition with Faster-Whisper, or plain typing.
@@ -53,8 +54,10 @@ python -m frontend.app              # voice and microphone on
 python -m frontend.app --no-voice   # text only
 ```
 
-Shortcuts: **Ctrl+Space** talk (press again when you've finished), **Esc** stop speaking,
-**Enter** send. Every chat command below also works in the app's message box.
+Shortcuts: **Ctrl+Space** talk (press again when you've finished), **Esc** stop speaking or
+close the drawer, **Enter** send, **Ctrl+1** agenda, **Ctrl+2** memories. The mic button turns
+into a stop button while PARKER speaks. "Speak replies" and "Clear conversation" are in the
+settings menu (top right). Every chat command below also works in the message box.
 
 The terminal version is still available:
 
@@ -128,6 +131,7 @@ frontend/
   app.py             # desktop window: chat, controls, memories and agenda panels
   worker.py          # runs the model, microphone and voice off the window thread
   orb.py             # the animated status orb
+  icons.py           # line icons drawn in code
   theme.py           # the golden colour palette and styles
 tests/               # one test file per module
 docs/                # architecture, roadmap, changelog, credits

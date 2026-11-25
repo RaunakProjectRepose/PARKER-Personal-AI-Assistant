@@ -2,6 +2,19 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## Unreleased – Premium, less cluttered design
+
+### Changed
+- Agenda and Memories moved into a drawer that slides in from the right (calendar and sparkle
+  icons, Ctrl+1 / Ctrl+2, Esc to close); the conversation gets the whole window by default.
+- One rounded message bar with a send arrow and a gold mic button that becomes "done" while
+  listening and "stop" while PARKER speaks; separate Send, Talk and Stop buttons removed.
+- "Speak replies", "Clear conversation" and the model name moved to a settings menu.
+- Message bubbles without "You"/"PARKER" labels: soft gold pills for you, white cards with a
+  gentle shadow for PARKER; spoken messages get a quiet "spoken" tag.
+- Small gold wordmark, larger orb as the centrepiece, spaced-out status text, a centred reading
+  column and a soft radial glow behind everything. Icons are drawn in code.
+
 ## Unreleased – Milestone 3: desktop app
 
 ### Added

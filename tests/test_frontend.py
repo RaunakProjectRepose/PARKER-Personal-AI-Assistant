@@ -266,7 +266,7 @@ def test_threaded_listening_stops_when_talk_is_pressed_again(app):
         assert wait_until(lambda: window.chat.messages and window.chat.messages[0][0] == "parker")
         window.toggle_listening()
         assert wait_until(lambda: window.state == "listening")
-        assert window.talk_button.text() == "Done"
+        assert window.talk_button.property("mode") == "listening"
         window.toggle_listening()  # click again: stop recording
         assert wait_until(lambda: sent == ["Hello from the microphone"])
         assert wait_until(lambda: ("parker", "Hi!") in window.chat.messages)
@@ -298,3 +298,55 @@ def test_recording_time_limit_stops_listening_directly(app):
     window.worker.stop_listening = lambda: stopped.append(True)
     window._recording_limit.timeout.emit()
     assert stopped == [True]
+
+
+
+# ---- premium layout: drawer and the one mic button ---------------------------
+
+def test_drawer_is_closed_until_asked_and_toggles(app):
+    window, _, _ = make_window(app)
+    assert not window.drawer.is_open
+    window.toggle_drawer("Agenda")
+    assert window.drawer.current == "Agenda" and window.agenda_button.isChecked()
+    window.toggle_drawer("Memories")
+    assert window.drawer.current == "Memories" and not window.agenda_button.isChecked()
+    window.toggle_drawer("Memories")  # same button again closes it
+    assert not window.drawer.is_open and not window.memories_button.isChecked()
+
+
+def test_escape_closes_the_drawer(app):
+    window, _, _ = make_window(app)
+    window.toggle_drawer("Agenda")
+    window.escape()
+    assert not window.drawer.is_open
+
+
+def test_mic_button_changes_with_state(app):
+    window, _, _ = make_window(app)
+    assert window.talk_button.property("mode") == "talk"
+    window.set_state("speaking")
+    assert window.talk_button.property("mode") == "speaking"
+    assert window.talk_button.isEnabled()
+
+
+def test_mic_button_stops_speech_while_speaking(app):
+    window, speaker, sent = make_window(app)
+    window.set_state("speaking")
+    window.mic_clicked()
+    assert speaker.stopped == 1
+    assert sent == []  # it did not start listening
+
+
+def test_spoken_messages_are_marked_quietly(app):
+    window, _, _ = make_window(app, listener_text="Hello there")
+    window.toggle_listening()
+    assert ("user", "Hello there") in window.chat.messages
+
+
+def test_settings_menu_has_voice_toggle_and_clear(app):
+    window, _, _ = make_window(app)
+    labels = [a.text() for a in window.settings_button.menu().actions()]
+    assert "Speak replies" in labels and "Clear conversation" in labels
+    window.process("Hello")
+    next(a for a in window.settings_button.menu().actions() if a.text() == "Clear conversation").trigger()
+    assert window.assistant.history == []

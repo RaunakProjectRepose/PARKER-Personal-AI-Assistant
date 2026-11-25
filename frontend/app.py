@@ -1,11 +1,12 @@
-"""PARKER desktop app (Milestone 3).
+"""PARKER desktop app.
 
 Run from the project folder, with Ollama running:
 
     python -m frontend.app              # with voice and microphone
     python -m frontend.app --no-voice   # text only
 
-Shortcuts: Ctrl+Space talk / stop listening · Esc stop speaking · Enter send.
+Shortcuts: Ctrl+Space talk / finish talking · Esc stop speaking or close the
+drawer · Enter send · Ctrl+1 agenda · Ctrl+2 memories.
 """
 
 from __future__ import annotations
@@ -14,25 +15,37 @@ import argparse
 import sys
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import QDate, Qt, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QFont, QKeySequence, QShortcut
+from PySide6.QtCore import (
+    QDate,
+    QEasingCurve,
+    QPropertyAnimation,
+    QSize,
+    Qt,
+    QThread,
+    QTimer,
+    Signal,
+    Slot,
+)
+from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QDateEdit,
     QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
     QListView,
+    QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QTabWidget,
+    QStackedWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -44,11 +57,33 @@ from backend.greeting import build_greeting, time_of_day
 from backend.main import HELP_TEXT, QUIT_COMMANDS, RESET_COMMAND, handle_agenda, handle_memory
 from backend.memory import Memory, MemoryStoreError
 from frontend import theme
+from frontend.icons import icon
 from frontend.orb import StatusOrb
 from frontend.worker import Worker, default_listener, default_speaker
 
 MAX_RECORDING_MS = 30_000  # Recording always stops by itself after 30 s.
-BUBBLE_MAX_WIDTH = 520
+BUBBLE_MAX_WIDTH = 560
+COLUMN_WIDTH = 760  # the chat and message bar share one centred reading column
+DRAWER_WIDTH = 360
+
+
+def soft_shadow(widget: QWidget, blur: int = 28, alpha: int = 22, y: int = 6) -> None:
+    effect = QGraphicsDropShadowEffect(widget)
+    effect.setBlurRadius(blur)
+    effect.setOffset(0, y)
+    effect.setColor(QColor(150, 110, 20, alpha))
+    widget.setGraphicsEffect(effect)
+
+
+def icon_button(name: str, tooltip: str, size: int = 36, colour: str = theme.GOLD_DEEP) -> QToolButton:
+    button = QToolButton()
+    button.setObjectName("iconButton")
+    button.setIcon(icon(name, colour))
+    button.setIconSize(QSize(20, 20))
+    button.setFixedSize(size, size)
+    button.setToolTip(tooltip)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+    return button
 
 
 # ---- chat transcript --------------------------------------------------------
@@ -64,8 +99,8 @@ class ChatView(QScrollArea):
         body = QWidget()
         body.setObjectName("chatBody")
         self._layout = QVBoxLayout(body)
-        self._layout.setContentsMargins(24, 12, 24, 12)
-        self._layout.setSpacing(10)
+        self._layout.setContentsMargins(8, 8, 8, 16)
+        self._layout.setSpacing(14)
         self._layout.addStretch(1)
         self.setWidget(body)
         self.messages: list[tuple[str, str]] = []  # (kind, text), handy for tests
@@ -90,34 +125,37 @@ class ChatView(QScrollArea):
             bubble = QFrame()
             bubble.setObjectName("userBubble" if kind == "user" else "parkerBubble")
             inner = QVBoxLayout(bubble)
-            inner.setContentsMargins(14, 10, 14, 10)
+            inner.setContentsMargins(18, 12, 18, 12)
             inner.setSpacing(2)
-            who = QLabel(meta or ("You" if kind == "user" else "PARKER"))
-            who.setObjectName("bubbleMeta")
             words = QLabel(text)
             words.setObjectName("bubbleText")
             words.setWordWrap(True)
             words.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            inner.addWidget(who)
             inner.addWidget(words)
+            if meta:  # e.g. "spoken", shown small and quiet under the words
+                tag = QLabel(meta)
+                tag.setObjectName("bubbleMeta")
+                tag.setAlignment(Qt.AlignmentFlag.AlignRight)
+                inner.addWidget(tag)
             # Size the bubble to its text: short messages stay compact, long ones
             # wrap at a comfortable reading width.
             longest = max(
                 words.fontMetrics().horizontalAdvance(line) for line in text.splitlines() or [""]
             )
-            bubble.setMinimumWidth(min(int(longest * 1.1) + 40, BUBBLE_MAX_WIDTH))
+            bubble.setMinimumWidth(min(int(longest * 1.12) + 48, BUBBLE_MAX_WIDTH))
             bubble.setMaximumWidth(BUBBLE_MAX_WIDTH)
             bubble.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
             if kind == "user":
                 row.addStretch(1)
                 row.addWidget(bubble)
             else:
+                soft_shadow(bubble, blur=24, alpha=18, y=4)
                 row.addWidget(bubble)
                 row.addStretch(1)
         self._layout.insertLayout(self._layout.count() - 1, row)
 
 
-# ---- sidebar panels ---------------------------------------------------------
+# ---- drawer panels ----------------------------------------------------------
 
 def _section(title: str) -> QLabel:
     label = QLabel(title.upper())
@@ -131,6 +169,16 @@ def _secondary(text: str) -> QPushButton:
     return button
 
 
+def _clean_list() -> QListWidget:
+    lst = QListWidget()
+    lst.setWordWrap(True)
+    lst.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    lst.setTextElideMode(Qt.TextElideMode.ElideNone)
+    lst.setResizeMode(QListView.ResizeMode.Adjust)
+    lst.setSpacing(0)
+    return lst
+
+
 class MemoriesPanel(QWidget):
     changed = Signal()
 
@@ -138,26 +186,18 @@ class MemoriesPanel(QWidget):
         super().__init__()
         self.memory = memory
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 16)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
         layout.addWidget(_section("What PARKER remembers"))
-        self.list = QListWidget()
-        self.list.setWordWrap(True)
-        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.list.setTextElideMode(Qt.TextElideMode.ElideNone)
-        self.list.setResizeMode(QListView.ResizeMode.Adjust)
+        self.list = _clean_list()
         layout.addWidget(self.list, 1)
         self.entry = QLineEdit()
-        self.entry.setPlaceholderText("e.g. My favourite colour is blue")
+        self.entry.setPlaceholderText("Add a memory, then press Enter")
         self.entry.returnPressed.connect(self.add)
         layout.addWidget(self.entry)
-        buttons = QHBoxLayout()
-        add = QPushButton("Remember")
-        add.clicked.connect(self.add)
-        delete = _secondary("Forget selected")
-        delete.clicked.connect(self.delete_selected)
-        buttons.addWidget(add)
-        buttons.addWidget(delete)
-        layout.addLayout(buttons)
+        forget = _secondary("Forget selected")
+        forget.clicked.connect(self.delete_selected)
+        layout.addWidget(forget)
         self.setEnabled(memory is not None)
         self.refresh()
 
@@ -198,50 +238,38 @@ class AgendaPanel(QWidget):
         self.agenda = agenda
         self._today = today
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 16)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
 
         layout.addWidget(_section("Plans for next session"))
-        self.plans = QListWidget()
-        self.plans.setWordWrap(True)
-        self.plans.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.plans.setTextElideMode(Qt.TextElideMode.ElideNone)
-        self.plans.setResizeMode(QListView.ResizeMode.Adjust)
+        self.plans = _clean_list()
         self.plans.itemChanged.connect(self._plan_ticked)
-        layout.addWidget(self.plans, 1)
+        layout.addWidget(self.plans, 2)
         self.plan_entry = QLineEdit()
         self.plan_entry.setPlaceholderText("Add a plan, then press Enter")
         self.plan_entry.returnPressed.connect(self.add_plan)
         layout.addWidget(self.plan_entry)
 
-        layout.addSpacing(8)
+        layout.addSpacing(14)
         layout.addWidget(_section("Next 7 days"))
-        self.events = QListWidget()
-        self.events.setWordWrap(True)
-        self.events.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.events.setTextElideMode(Qt.TextElideMode.ElideNone)
-        self.events.setResizeMode(QListView.ResizeMode.Adjust)
-        layout.addWidget(self.events, 1)
+        self.events = _clean_list()
+        layout.addWidget(self.events, 3)
         when = QHBoxLayout()
         self.event_day = QDateEdit()
         self.event_day.setCalendarPopup(True)
         self.event_day.setDisplayFormat("ddd d MMM")
         self.event_time = QLineEdit()
-        self.event_time.setPlaceholderText("18:00 (optional)")
+        self.event_time.setPlaceholderText("Time")
         when.addWidget(self.event_day, 3)
         when.addWidget(self.event_time, 2)
         layout.addLayout(when)
         self.event_text = QLineEdit()
-        self.event_text.setPlaceholderText("What's happening?")
+        self.event_text.setPlaceholderText("Add an event, then press Enter")
         self.event_text.returnPressed.connect(self.add_event)
         layout.addWidget(self.event_text)
-        buttons = QHBoxLayout()
-        add = QPushButton("Add event")
-        add.clicked.connect(self.add_event)
-        cancel = _secondary("Remove selected")
-        cancel.clicked.connect(self.delete_selected_event)
-        buttons.addWidget(add)
-        buttons.addWidget(cancel)
-        layout.addLayout(buttons)
+        remove = _secondary("Remove selected event")
+        remove.clicked.connect(self.delete_selected_event)
+        layout.addWidget(remove)
         self.setEnabled(agenda is not None)
         self.refresh()
 
@@ -306,6 +334,62 @@ class AgendaPanel(QWidget):
         self.changed.emit()
 
 
+class Drawer(QFrame):
+    """A panel that slides in from the right, holding Agenda or Memories."""
+
+    def __init__(self, pages: dict[str, QWidget]) -> None:
+        super().__init__()
+        self.setObjectName("drawer")
+        self.setMaximumWidth(0)  # closed
+        self.setMinimumWidth(0)
+        self.current: str | None = None
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(26, 22, 22, 22)
+        layout.setSpacing(14)
+        top = QHBoxLayout()
+        self.title = QLabel("")
+        self.title.setObjectName("drawerTitle")
+        self.title.setFont(theme.font(theme.SERIF, 17, QFont.Weight.DemiBold))
+        close = icon_button("close", "Close (Esc)", 32, theme.TEXT_MUTED)
+        close.clicked.connect(self.close_drawer)
+        top.addWidget(self.title)
+        top.addStretch(1)
+        top.addWidget(close)
+        layout.addLayout(top)
+        self.stack = QStackedWidget()
+        self.pages = pages
+        for page in pages.values():
+            self.stack.addWidget(page)
+        layout.addWidget(self.stack, 1)
+        self._animation = QPropertyAnimation(self, b"maximumWidth", self)
+        self._animation.setDuration(220)
+        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    @property
+    def is_open(self) -> bool:
+        return self.current is not None
+
+    def show_page(self, name: str) -> None:
+        """Open on `name`, or close if that page is already showing."""
+        if self.current == name:
+            self.close_drawer()
+            return
+        self.current = name
+        self.title.setText(name)
+        self.stack.setCurrentWidget(self.pages[name])
+        self._slide_to(DRAWER_WIDTH)
+
+    def close_drawer(self) -> None:
+        self.current = None
+        self._slide_to(0)
+
+    def _slide_to(self, width: int) -> None:
+        self._animation.stop()
+        self._animation.setStartValue(self.maximumWidth())
+        self._animation.setEndValue(width)
+        self._animation.start()
+
+
 # ---- main window ------------------------------------------------------------
 
 class MainWindow(QMainWindow):
@@ -329,8 +413,8 @@ class MainWindow(QMainWindow):
         self.state = "loading"
         self.voice_ready = self.mic_ready = False
         self.setWindowTitle("PARKER")
-        self.resize(1180, 760)
-        self.setMinimumSize(900, 600)
+        self.resize(1120, 780)
+        self.setMinimumSize(760, 580)
 
         central = QWidget()
         central.setObjectName("central")
@@ -339,82 +423,112 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # Left: header, orb, chat, controls.
+        # ---- main area -------------------------------------------------------
         main = QVBoxLayout()
-        main.setContentsMargins(0, 18, 0, 18)
-        main.setSpacing(6)
-        title = QLabel("PARKER")
-        title.setObjectName("title")
-        title.setFont(theme.font(theme.SERIF, 30, QFont.Weight.DemiBold, spacing=8))
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle = QLabel("Your personal assistant")
-        subtitle.setObjectName("subtitle")
-        subtitle.setFont(theme.font(theme.SERIF, 12))
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.orb = StatusOrb(130)
+        main.setContentsMargins(28, 18, 28, 40)  # room for the message bar shadow
+        main.setSpacing(0)
+
+        header = QHBoxLayout()
+        wordmark = QLabel("PARKER")
+        wordmark.setObjectName("wordmark")
+        wordmark.setFont(theme.font(theme.SERIF, 15, QFont.Weight.DemiBold, spacing=6))
+        self.agenda_button = icon_button("calendar", "Agenda (Ctrl+1)")
+        self.memories_button = icon_button("memory", "Memories (Ctrl+2)")
+        self.settings_button = icon_button("settings", "Settings")
+        for button in (self.agenda_button, self.memories_button):
+            button.setCheckable(True)
+        header.addWidget(wordmark)
+        header.addStretch(1)
+        header.addWidget(self.agenda_button)
+        header.addWidget(self.memories_button)
+        header.addWidget(self.settings_button)
+        main.addLayout(header)
+
+        self.orb = StatusOrb(150)
         self.status_label = QLabel(theme.STATUS_TEXT["loading"])
         self.status_label.setObjectName("status")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main.addWidget(title)
-        main.addWidget(subtitle)
+        main.addSpacing(4)
         main.addWidget(self.orb, 0, Qt.AlignmentFlag.AlignHCenter)
         main.addWidget(self.status_label)
+        main.addSpacing(12)
 
+        # The chat and the message bar share one centred column.
+        column = QWidget()
+        column.setMaximumWidth(COLUMN_WIDTH)
+        col = QVBoxLayout(column)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(14)
         self.chat = ChatView()
-        main.addWidget(self.chat, 1)
+        col.addWidget(self.chat, 1)
 
-        controls = QHBoxLayout()
-        controls.setContentsMargins(24, 6, 24, 0)
-        controls.setSpacing(10)
+        composer = QFrame()
+        composer.setObjectName("composer")
+        composer.setFixedHeight(56)
+        soft_shadow(composer, blur=36, alpha=30, y=8)
+        bar = QHBoxLayout(composer)
+        bar.setContentsMargins(20, 6, 6, 6)
+        bar.setSpacing(6)
         self.entry = QLineEdit()
-        self.entry.setPlaceholderText("Message PARKER, or press Ctrl+Space to talk…")
+        self.entry.setObjectName("composerInput")
+        self.entry.setPlaceholderText("Ask PARKER anything…")
         self.entry.returnPressed.connect(self.send_typed)
-        self.send_button = QPushButton("Send")
+        self.send_button = QToolButton()
+        self.send_button.setObjectName("sendButton")
+        self.send_button.setIcon(icon("send", theme.GOLD_DEEP))
+        self.send_button.setIconSize(QSize(20, 20))
+        self.send_button.setFixedSize(36, 36)
+        self.send_button.setToolTip("Send (Enter)")
+        self.send_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.send_button.clicked.connect(self.send_typed)
-        self.talk_button = QPushButton("Talk")
-        self.talk_button.setObjectName("talk")
-        self.talk_button.setToolTip("Talk to PARKER (Ctrl+Space). Click again to stop.")
-        self.talk_button.clicked.connect(self.toggle_listening)
-        self.stop_button = _secondary("Stop")
-        self.stop_button.setToolTip("Stop speaking (Esc)")
-        self.stop_button.clicked.connect(self.stop_speaking)
-        controls.addWidget(self.entry, 1)
-        controls.addWidget(self.send_button)
-        controls.addWidget(self.talk_button)
-        controls.addWidget(self.stop_button)
-        main.addLayout(controls)
+        self.talk_button = QToolButton()
+        self.talk_button.setObjectName("micButton")
+        self.talk_button.setIconSize(QSize(22, 22))
+        self.talk_button.setFixedSize(44, 44)
+        self.talk_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.talk_button.clicked.connect(self.mic_clicked)
+        bar.addWidget(self.entry, 1)
+        bar.addWidget(self.send_button)
+        bar.addWidget(self.talk_button)
+        col.addWidget(composer)
 
-        footer = QHBoxLayout()
-        footer.setContentsMargins(26, 2, 24, 0)
-        self.voice_toggle = QCheckBox("Speak replies")
-        self.voice_toggle.setChecked(True)
-        self.voice_toggle.toggled.connect(self._voice_toggled)
-        self.model_label = QLabel(f"Running locally · {MODEL}")
-        self.model_label.setObjectName("subtitle")
-        footer.addWidget(self.voice_toggle)
-        footer.addStretch(1)
-        footer.addWidget(self.model_label)
-        main.addLayout(footer)
+        centre = QHBoxLayout()
+        centre.addStretch(1)
+        centre.addWidget(column, 100)
+        centre.addStretch(1)
+        main.addLayout(centre, 1)
         outer.addLayout(main, 1)
 
-        # Right: memories and agenda.
-        sidebar = QFrame()
-        sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(330)
-        side = QVBoxLayout(sidebar)
-        side.setContentsMargins(0, 18, 0, 0)
-        tabs = QTabWidget()
+        # ---- drawer ------------------------------------------------------------
         self.memories_panel = MemoriesPanel(assistant.memory)
         self.agenda_panel = AgendaPanel(assistant.agenda, today=lambda: self._now().date())
-        tabs.addTab(self.agenda_panel, "Agenda")
-        tabs.addTab(self.memories_panel, "Memories")
-        side.addWidget(tabs)
-        outer.addWidget(sidebar)
+        self.drawer = Drawer({"Agenda": self.agenda_panel, "Memories": self.memories_panel})
+        outer.addWidget(self.drawer)
+        self.agenda_button.clicked.connect(lambda: self.toggle_drawer("Agenda"))
+        self.memories_button.clicked.connect(lambda: self.toggle_drawer("Memories"))
+        self.drawer._animation.finished.connect(self._sync_drawer_buttons)
+
+        # ---- settings menu -------------------------------------------------------
+        menu = QMenu(self)
+        self.voice_toggle = QAction("Speak replies", self, checkable=True, checked=True)
+        self.voice_toggle.toggled.connect(self._voice_toggled)
+        clear = QAction("Clear conversation", self)
+        clear.triggered.connect(lambda: self.process("/reset"))
+        about = QAction(f"Running locally · {MODEL}", self)
+        about.setEnabled(False)
+        menu.addAction(self.voice_toggle)
+        menu.addAction(clear)
+        menu.addSeparator()
+        menu.addAction(about)
+        self.settings_button.setMenu(menu)
+        self.settings_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
         QShortcut(QKeySequence("Ctrl+Space"), self, activated=self.toggle_listening)
-        QShortcut(QKeySequence("Esc"), self, activated=self.stop_speaking)
+        QShortcut(QKeySequence("Esc"), self, activated=self.escape)
+        QShortcut(QKeySequence("Ctrl+1"), self, activated=lambda: self.toggle_drawer("Agenda"))
+        QShortcut(QKeySequence("Ctrl+2"), self, activated=lambda: self.toggle_drawer("Memories"))
 
-        # Worker: slow work happens off the window thread.
+        # ---- worker: slow work happens off the window thread -------------------
         self.worker = Worker(assistant, make_speaker, make_listener)
         self._thread = None
         if threaded:
@@ -451,14 +565,24 @@ class MainWindow(QMainWindow):
         self.state = state
         self.orb.set_state(state)
         self.status_label.setText(theme.STATUS_TEXT.get(state, ""))
-        listening = state == "listening"
-        self.talk_button.setText("Done" if listening else "Talk")
-        self.talk_button.setProperty("listening", listening)
+        # One button, three jobs: talk when ready, finish while listening,
+        # stop while PARKER is speaking.
+        if state == "listening":
+            mode, name, tip = "listening", "check", "Done talking (Ctrl+Space)"
+        elif state == "speaking":
+            mode, name, tip = "speaking", "stop", "Stop speaking (Esc)"
+        else:
+            mode, name, tip = "talk", "mic", "Talk to PARKER (Ctrl+Space)"
+        self.talk_button.setProperty("mode", mode)
+        self.talk_button.setIcon(icon(name, theme.GOLD_DEEP if mode == "listening" else "#FFFFFF"))
+        self.talk_button.setToolTip(tip)
         self.talk_button.style().unpolish(self.talk_button)
         self.talk_button.style().polish(self.talk_button)
-        self.talk_button.setEnabled(self.mic_ready and state in ("idle", "listening", "speaking"))
-        self.stop_button.setEnabled(state == "speaking")
-        if not listening:
+        can_use = (self.mic_ready and state in ("idle", "listening")) or (
+            state == "speaking" and self.voice_ready
+        )
+        self.talk_button.setEnabled(can_use)
+        if state != "listening":
             self._recording_limit.stop()
 
     @Slot(bool, bool, str)
@@ -490,6 +614,12 @@ class MainWindow(QMainWindow):
         self.entry.clear()
         self.process(text)
 
+    def mic_clicked(self) -> None:
+        if self.state == "speaking":
+            self.stop_speaking()
+        else:
+            self.toggle_listening()
+
     def toggle_listening(self) -> None:
         if not self.mic_ready:
             return
@@ -503,6 +633,21 @@ class MainWindow(QMainWindow):
 
     def stop_speaking(self) -> None:
         self.worker.stop_speaking()
+
+    def escape(self) -> None:
+        if self.state == "speaking":
+            self.stop_speaking()
+        elif self.drawer.is_open:
+            self.drawer.close_drawer()
+            self._sync_drawer_buttons()
+
+    def toggle_drawer(self, name: str) -> None:
+        self.drawer.show_page(name)
+        self._sync_drawer_buttons()
+
+    def _sync_drawer_buttons(self) -> None:
+        self.agenda_button.setChecked(self.drawer.current == "Agenda")
+        self.memories_button.setChecked(self.drawer.current == "Memories")
 
     def _voice_toggled(self, on: bool) -> None:
         self.worker.voice_enabled = on
@@ -530,7 +675,7 @@ class MainWindow(QMainWindow):
 
     def process(self, text: str, spoken: bool = False) -> None:
         """Handle one message, typed or spoken, exactly like the terminal chat does."""
-        self.chat.add("user", text, meta="You (spoken)" if spoken else "You")
+        self.chat.add("user", text, meta="spoken" if spoken else "")
         lowered = text.lower()
         if lowered in QUIT_COMMANDS:
             self.close()
