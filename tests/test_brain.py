@@ -68,6 +68,11 @@ def test_system_prompt_names_parker_and_the_real_model():
     assert "Qwen" in brain.SYSTEM_PROMPT
 
 
+def test_system_prompt_forbids_inventing_user_details():
+    # After /reset, Qwen once "guessed" the user's favourite colour.
+    assert "Never invent facts about the user" in brain.SYSTEM_PROMPT
+
+
 # ---- generate_response: success ---------------------------------------------
 
 def test_returns_reply_text_stripped(post):
