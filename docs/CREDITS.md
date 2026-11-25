@@ -15,3 +15,9 @@ Voice files are downloaded locally into `voices/` and are not stored in this rep
 ## Text-to-speech engine
 
 [Piper](https://github.com/OHF-Voice/piper1-gpl) (`piper-tts`), licensed GPL-3.0-or-later.
+
+## Speech recognition
+
+[Faster-Whisper](https://github.com/SYSTRAN/faster-whisper) (MIT) running OpenAI's
+[Whisper](https://github.com/openai/whisper) `small.en` model (MIT), entirely on this laptop.
+Microphone access via [python-sounddevice](https://github.com/spatialaudio/python-sounddevice) (MIT).

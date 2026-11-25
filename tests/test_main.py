@@ -5,7 +5,7 @@ from backend.brain import BrainError
 from backend.main import run
 
 
-def chat(lines, generate=lambda message, history: f"echo: {message}", speak_fn=None):
+def chat(lines, generate=lambda message, history: f"echo: {message}", speak_fn=None, listen_fn=None):
     """Run the loop with scripted input; return (printed lines, assistant)."""
     inputs = iter(lines)
 
@@ -22,6 +22,7 @@ def chat(lines, generate=lambda message, history: f"echo: {message}", speak_fn=N
         input_fn=fake_input,
         print_fn=lambda *a: out.append(" ".join(map(str, a))),
         speak_fn=speak_fn,
+        listen_fn=listen_fn,
     )
     return out, assistant
 
@@ -73,3 +74,34 @@ def test_voice_failure_does_not_end_the_chat():
     out, a = chat(["one", "two", "/quit"], speak_fn=broken_speaker)
     assert out.count("[voice error] speakers unplugged\n") == 2
     assert len(a.history) == 4
+
+
+def test_empty_line_starts_listening_when_microphone_is_on():
+    out, a = chat(["", "/quit"], listen_fn=lambda: "What time is it?")
+    assert "You (spoken): What time is it?" in out
+    assert "PARKER: echo: What time is it?\n" in out
+
+
+def test_nothing_heard_is_reported_and_not_sent_to_the_brain():
+    out, a = chat(["", "/quit"], listen_fn=lambda: "  ")
+    assert "PARKER: Sorry, I didn't catch that.\n" in out
+    assert a.history == []
+
+
+def test_microphone_failure_does_not_end_the_chat():
+    def broken_mic():
+        raise RuntimeError("no microphone found")
+
+    out, a = chat(["", "typed", "/quit"], listen_fn=broken_mic)
+    assert "[microphone error] no microphone found\n" in out
+    assert "PARKER: echo: typed\n" in out
+
+
+def test_spoken_commands_work_too():
+    out, a = chat([""], listen_fn=lambda: "/quit")
+    assert out[-1] == "PARKER: Goodbye."
+
+
+def test_empty_line_is_still_ignored_without_microphone():
+    out, a = chat(["", "/quit"])
+    assert a.history == []

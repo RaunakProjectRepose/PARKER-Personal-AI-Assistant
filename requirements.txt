@@ -1,2 +1,4 @@
 requests>=2.31
 piper-tts>=1.5  # GPL-3.0; en_GB-alba-medium needs Piper 1.5+
+faster-whisper>=1.1  # MIT; speech-to-text
+sounddevice>=0.5  # microphone recording

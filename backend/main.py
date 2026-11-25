@@ -4,6 +4,8 @@ Run from the project folder (with Ollama running):
 
     python -m backend.main            # text replies
     python -m backend.main --speak    # text replies, also spoken aloud
+    python -m backend.main --listen   # press Enter on an empty line to talk
+    python -m backend.main --voice    # both: a full spoken conversation
 
 Commands:  /reset  forget the conversation    /quit  leave (or Ctrl+C)
 """
@@ -24,15 +26,23 @@ def run(
     input_fn=input,
     print_fn=print,
     speak_fn=None,
+    listen_fn=None,
 ) -> None:
     """Read messages, print (and optionally speak) PARKER's replies, until the user quits.
 
     `speak_fn`, if given, is called with each reply's text and should say it aloud.
+    `listen_fn`, if given, is called when the user presses Enter on an empty
+    line; it records speech and returns it as text.
     """
     assistant = assistant or Assistant()
-    voice_note = " Voice is on." if speak_fn else ""
+    notes = []
+    if speak_fn:
+        notes.append("Voice is on.")
+    if listen_fn:
+        notes.append("Press Enter on an empty line to talk.")
+    note = (" " + " ".join(notes)) if notes else ""
     print_fn(
-        f"PARKER is online (model: {MODEL}).{voice_note} "
+        f"PARKER is online (model: {MODEL}).{note} "
         "Type /reset to start over, /quit to leave.\n"
     )
 
@@ -43,6 +53,19 @@ def run(
             print_fn("\nPARKER: Goodbye.")
             return
 
+        if not message and listen_fn:
+            try:
+                message = listen_fn().strip()
+            except KeyboardInterrupt:
+                print_fn("\nPARKER: Goodbye.")
+                return
+            except Exception as err:  # A microphone problem must never end the chat.
+                print_fn(f"[microphone error] {err}\n")
+                continue
+            if not message:
+                print_fn("PARKER: Sorry, I didn't catch that.\n")
+                continue
+            print_fn(f"You (spoken): {message}")
         if not message:
             continue
         if message.lower() in QUIT_COMMANDS:
@@ -70,7 +93,11 @@ def run(
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Chat with PARKER in the terminal.")
     parser.add_argument("--speak", action="store_true", help="speak PARKER's replies aloud")
+    parser.add_argument("--listen", action="store_true", help="talk to PARKER with your microphone")
+    parser.add_argument("--voice", action="store_true", help="same as --speak --listen")
     args = parser.parse_args(argv)
+    if args.voice:
+        args.speak = args.listen = True
 
     speak_fn = None
     if args.speak:
@@ -81,7 +108,17 @@ def main(argv: list[str] | None = None) -> None:
         except SpeechError as err:
             print(f"[voice error] {err}\nContinuing with text only.\n")
 
-    run(speak_fn=speak_fn)
+    listen_fn = None
+    if args.listen:
+        from backend.speech_input import Listener, SpeechInputError
+
+        print("Loading speech recognition (the first run downloads ~480 MB)...")
+        try:
+            listen_fn = Listener().listen
+        except SpeechInputError as err:
+            print(f"[microphone error] {err}\nContinuing with typing only.\n")
+
+    run(speak_fn=speak_fn, listen_fn=listen_fn)
 
 
 if __name__ == "__main__":
