@@ -2,6 +2,17 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## Unreleased – Milestone 4: PARKER from any app
+
+### Added
+- System tray: closing the window hides PARKER instead of quitting; the tray icon glows while
+  listening or speaking. "Quit PARKER" in the tray menu exits completely.
+- Global shortcut **Ctrl+Alt+Space** to talk from any app, using Windows' `RegisterHotKey` (only
+  that combination is reported; no keyboard hook). Changeable in settings and remembered.
+- Optional "Start with Windows" (adds/removes one entry under the current user's Run key) and a
+  `--background` mode that starts hidden and keeps the greeting silent.
+- `parker.pyw` launcher to run PARKER without a console window.
+
 ## Unreleased – Premium, less cluttered design
 
 ### Changed

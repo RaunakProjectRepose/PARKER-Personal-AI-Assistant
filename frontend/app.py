@@ -5,20 +5,29 @@ Run from the project folder, with Ollama running:
     python -m frontend.app              # with voice and microphone
     python -m frontend.app --no-voice   # text only
 
-Shortcuts: Ctrl+Space talk / finish talking · Esc stop speaking or close the
-drawer · Enter send · Ctrl+1 agenda · Ctrl+2 memories.
+    python -m frontend.app --background # start hidden in the system tray
+
+Shortcuts: Ctrl+Alt+Space talk from any app (global) · Ctrl+Space talk /
+finish talking · Esc stop speaking or close the drawer · Enter send ·
+Ctrl+1 agenda · Ctrl+2 memories.
+
+Closing the window keeps PARKER running in the system tray (by the clock);
+use "Quit PARKER" from the tray menu to exit completely.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import date, datetime, timedelta
 
 from PySide6.QtCore import (
     QDate,
     QEasingCurve,
+    QPointF,
     QPropertyAnimation,
+    QSettings,
     QSize,
     Qt,
     QThread,
@@ -26,7 +35,17 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QShortcut
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QFont,
+    QIcon,
+    QKeySequence,
+    QPainter,
+    QPixmap,
+    QRadialGradient,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QDateEdit,
@@ -38,6 +57,7 @@ from PySide6.QtWidgets import (
     QListView,
     QListWidget,
     QListWidgetItem,
+    QInputDialog,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -45,6 +65,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
+    QSystemTrayIcon,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -56,7 +77,8 @@ from backend.brain import MODEL, OWNER_NAME
 from backend.greeting import build_greeting, time_of_day
 from backend.main import HELP_TEXT, QUIT_COMMANDS, RESET_COMMAND, handle_agenda, handle_memory
 from backend.memory import Memory, MemoryStoreError
-from frontend import theme
+from frontend import autostart, theme
+from frontend.hotkey import DEFAULT_HOTKEY, GlobalHotkey, HotkeyError, parse_hotkey
 from frontend.icons import icon
 from frontend.orb import StatusOrb
 from frontend.worker import Worker, default_listener, default_speaker
@@ -65,6 +87,37 @@ MAX_RECORDING_MS = 30_000  # Recording always stops by itself after 30 s.
 BUBBLE_MAX_WIDTH = 560
 COLUMN_WIDTH = 760  # the chat and message bar share one centred reading column
 DRAWER_WIDTH = 360
+
+
+def tray_icon(state: str) -> QIcon:
+    """A small golden orb for the system tray; brighter while listening or speaking."""
+    core, halo = theme.ORB_COLOURS.get(state, theme.ORB_COLOURS["idle"])
+    size = 64
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    c = QPointF(size / 2, size / 2)
+    if state in ("listening", "speaking"):
+        glow = QRadialGradient(c, size / 2)
+        bright = QColor(halo)
+        bright.setAlpha(230)
+        glow.setColorAt(0.5, bright)
+        bright.setAlpha(0)
+        glow.setColorAt(1.0, bright)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(glow)
+        p.drawEllipse(c, size / 2, size / 2)
+    g = QRadialGradient(QPointF(c.x() - 7, c.y() - 7), size * 0.45)
+    g.setColorAt(0.0, QColor("#FFFFFF"))
+    g.setColorAt(0.45, core)
+    g.setColorAt(1.0, QColor(theme.GOLD))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(g)
+    radius = size * (0.36 if state in ("listening", "speaking") else 0.42)
+    p.drawEllipse(c, radius, radius)
+    p.end()
+    return QIcon(pixmap)
 
 
 def soft_shadow(widget: QWidget, blur: int = 28, alpha: int = 22, y: int = 6) -> None:
@@ -406,9 +459,18 @@ class MainWindow(QMainWindow):
         make_listener=default_listener,
         threaded: bool = True,
         now=datetime.now,
+        tray_available=QSystemTrayIcon.isSystemTrayAvailable,
+        make_hotkey=GlobalHotkey,
+        settings: QSettings | None = None,
+        start_hidden: bool = False,
     ) -> None:
         super().__init__()
         self.assistant = assistant
+        self.settings = settings or QSettings("PARKER", "PARKER")
+        self.start_hidden = start_hidden
+        self._quitting = False
+        self._told_about_tray = False
+        self._told_about_hotkey = False
         self._now = now
         self.state = "loading"
         self.voice_ready = self.mic_ready = False
@@ -516,8 +578,18 @@ class MainWindow(QMainWindow):
         clear.triggered.connect(lambda: self.process("/reset"))
         about = QAction(f"Running locally · {MODEL}", self)
         about.setEnabled(False)
+        self.hotkey_action = QAction("", self)
+        self.hotkey_action.triggered.connect(self.change_hotkey)
+        self.autostart_action = QAction("Start with Windows", self, checkable=True)
+        self.autostart_action.setVisible(autostart.supported())
+        if autostart.supported():
+            self.autostart_action.setChecked(autostart.is_enabled())
+        self.autostart_action.toggled.connect(self._autostart_toggled)
         menu.addAction(self.voice_toggle)
         menu.addAction(clear)
+        menu.addSeparator()
+        menu.addAction(self.hotkey_action)
+        menu.addAction(self.autostart_action)
         menu.addSeparator()
         menu.addAction(about)
         self.settings_button.setMenu(menu)
@@ -556,6 +628,17 @@ class MainWindow(QMainWindow):
         # queued call would wait behind the recording it is meant to stop.
         self._recording_limit.timeout.connect(self._stop_listening_now)
 
+        # ---- system tray and global hotkey ---------------------------------------
+        self.tray = None
+        if tray_available():
+            self._build_tray()
+        self._make_hotkey = make_hotkey
+        self.hotkey = None
+        self.hotkey_text = os.environ.get("PARKER_HOTKEY") or str(
+            self.settings.value("hotkey", DEFAULT_HOTKEY)
+        )
+        self._start_hotkey(self.hotkey_text)
+
         self.set_state("loading")
         self.load_requested.emit()
 
@@ -584,6 +667,9 @@ class MainWindow(QMainWindow):
         self.talk_button.setEnabled(can_use)
         if state != "listening":
             self._recording_limit.stop()
+        if self.tray is not None:
+            self.tray.setIcon(tray_icon(state))
+            self.tray.setToolTip(f"PARKER · {theme.STATUS_TEXT.get(state, '').title()}")
 
     @Slot(bool, bool, str)
     def _loaded(self, voice_ok: bool, mic_ok: bool, notes: str) -> None:
@@ -604,7 +690,114 @@ class MainWindow(QMainWindow):
             today = self._now().date()
             text = build_greeting(OWNER_NAME, agenda.open_plans(), agenda.events_on(today), self._now())
         self.chat.add("parker", text)
-        self.say_requested.emit(text)
+        if not self.start_hidden:  # stay quiet when Windows starts PARKER at login
+            self.say_requested.emit(text)
+
+    # ---- tray and hotkey -------------------------------------------------------
+    def _build_tray(self) -> None:
+        self.tray = QSystemTrayIcon(tray_icon("loading"), self)
+        self.tray.setToolTip("PARKER")
+        menu = QMenu()
+        show = QAction("Open PARKER", self)
+        show.triggered.connect(self.show_window)
+        self.tray_talk = QAction("Talk", self)
+        self.tray_talk.triggered.connect(self.toggle_listening)
+        quit_action = QAction("Quit PARKER", self)
+        quit_action.triggered.connect(self.quit_app)
+        menu.addAction(show)
+        menu.addAction(self.tray_talk)
+        menu.addSeparator()
+        menu.addAction(quit_action)
+        self._tray_menu = menu  # keep a reference: the tray does not own it
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(self._tray_clicked)
+        self.tray.show()
+
+    def _tray_clicked(self, reason) -> None:
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            self.show_window()
+
+    def show_window(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _start_hotkey(self, text: str) -> bool:
+        if self.hotkey is not None:
+            self.hotkey.stop()
+            self.hotkey = None
+        self.hotkey_action.setText(f"Talk from any app: {text}…")
+        if self._make_hotkey is None:
+            return False
+        try:
+            hotkey = self._make_hotkey(text)
+        except HotkeyError as err:
+            self.chat.add("error", str(err))
+            return False
+        # Emitted from the hotkey's own thread: queue it onto the window thread.
+        hotkey.pressed.connect(self._hotkey_pressed, Qt.ConnectionType.QueuedConnection)
+        hotkey.failed.connect(self._hotkey_failed, Qt.ConnectionType.QueuedConnection)
+        self.hotkey = hotkey
+        if hasattr(self, "tray_talk"):
+            self.tray_talk.setText(f"Talk ({text})")
+        return hotkey.start()
+
+    @Slot()
+    def _hotkey_pressed(self) -> None:
+        if not self.mic_ready:
+            self.show_window()
+            self.chat.add("note", "The microphone isn't ready yet.")
+            return
+        if self.isHidden() and self.tray is not None and not self._told_about_hotkey:
+            self._told_about_hotkey = True
+            self.tray.showMessage(
+                "PARKER is listening",
+                f"Speak, then press {self.hotkey_text} again when you've finished.",
+                tray_icon("listening"),
+                4000,
+            )
+        self.toggle_listening()
+
+    @Slot(str)
+    def _hotkey_failed(self, message: str) -> None:
+        self.chat.add("note", message)
+
+    def change_hotkey(self) -> None:
+        text, ok = QInputDialog.getText(
+            self, "Talk from any app",
+            "Shortcut (e.g. Ctrl+Alt+Space, Ctrl+Shift+P, Alt+F9):", text=self.hotkey_text,
+        )
+        if not ok or not text.strip():
+            return
+        try:
+            parse_hotkey(text)
+        except HotkeyError as err:
+            QMessageBox.information(self, "PARKER", str(err))
+            return
+        self.hotkey_text = text.strip()
+        self.settings.setValue("hotkey", self.hotkey_text)
+        if self._start_hotkey(self.hotkey_text):
+            self.chat.add("note", f"Press {self.hotkey_text} in any app to talk to PARKER.")
+
+    def _autostart_toggled(self, on: bool) -> None:
+        try:
+            autostart.enable() if on else autostart.disable()
+        except OSError as err:
+            QMessageBox.information(self, "PARKER", f"Couldn't change the startup setting: {err}")
+            return
+        self.chat.add(
+            "note",
+            "PARKER will start quietly in the tray when you log in."
+            if on else "PARKER won't start with Windows any more.",
+        )
+
+    def quit_app(self) -> None:
+        self._quitting = True
+        self.close()
+        QApplication.quit()
 
     # ---- actions -------------------------------------------------------------
     def send_typed(self) -> None:
@@ -715,6 +908,24 @@ class MainWindow(QMainWindow):
         return "yes" if answer == QMessageBox.StandardButton.Yes else "no"
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt naming)
+        if self.tray is not None and not self._quitting:
+            # Closing the window hides PARKER to the tray; it keeps running.
+            event.ignore()
+            self.hide()
+            if not self._told_about_tray:
+                self._told_about_tray = True
+                self.tray.showMessage(
+                    "PARKER is still running",
+                    f"Press {self.hotkey_text} in any app to talk. "
+                    "Right-click the tray icon to quit.",
+                    tray_icon("idle"),
+                    5000,
+                )
+            return
+        if self.hotkey is not None:
+            self.hotkey.stop()
+        if self.tray is not None:
+            self.tray.hide()
         self.worker.stop_listening()
         self.worker.stop_speaking()
         if self._thread is not None:
@@ -729,10 +940,12 @@ class MainWindow(QMainWindow):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PARKER desktop app")
     parser.add_argument("--no-voice", action="store_true", help="text only: no speech in or out")
+    parser.add_argument("--background", action="store_true", help="start hidden in the system tray")
     args = parser.parse_args(argv)
 
     app = QApplication(sys.argv[:1])
     app.setApplicationName("PARKER")
+    app.setQuitOnLastWindowClosed(False)  # closing the window hides PARKER to the tray
     app.setStyleSheet(theme.STYLESHEET)
     app.setFont(theme.font(theme.SANS, 10))
 
@@ -746,8 +959,12 @@ def main(argv: list[str] | None = None) -> int:
         Assistant(memory=memory, agenda=agenda),
         make_speaker=None if args.no_voice else default_speaker,
         make_listener=None if args.no_voice else default_listener,
+        start_hidden=args.background,
     )
-    window.show()
+    if window.tray is None:
+        app.setQuitOnLastWindowClosed(True)  # no tray: closing really quits
+    if not (args.background and window.tray is not None):
+        window.show()
     code = app.exec()
     for store in (memory, agenda):
         if store is not None:

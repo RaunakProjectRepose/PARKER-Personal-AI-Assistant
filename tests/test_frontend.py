@@ -23,6 +23,16 @@ from frontend.app import MainWindow  # noqa: E402
 NOW = datetime(2026, 11, 25, 19, 30)
 
 
+def temp_settings():
+    """Settings stored in a throwaway file, never the real user settings."""
+    import tempfile
+
+    from PySide6.QtCore import QSettings
+
+    path = os.path.join(tempfile.mkdtemp(), "parker.ini")
+    return QSettings(path, QSettings.Format.IniFormat)
+
+
 @pytest.fixture(scope="module")
 def app():
     application = QApplication.instance() or QApplication([])
@@ -71,6 +81,9 @@ def make_window(app, *, reply="Happy to help, Raunak.", brain=None, listener_tex
         make_listener=(lambda wait: FakeListener(listener_text)) if mic else None,
         threaded=False,
         now=lambda: NOW,
+        tray_available=lambda: False,
+        make_hotkey=None,
+        settings=temp_settings(),
     )
     return window, speaker, sent
 
@@ -240,6 +253,9 @@ def test_threaded_listening_stops_when_talk_is_pressed_again(app):
         make_listener=lambda wait: WaitingListener(wait),
         threaded=True,
         now=lambda: NOW,
+        tray_available=lambda: False,
+        make_hotkey=None,
+        settings=temp_settings(),
     )
 
     def wait_until(condition, seconds=5):

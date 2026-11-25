@@ -4,7 +4,11 @@ PARKER is a local-first, voice-powered personal AI assistant. It listens through
 thinks with a language model running on your own laptop, and answers out loud — no cloud APIs,
 no subscriptions, and nothing you say leaves the machine.
 
-## What works today (Milestones 1–3)
+## What works today (Milestones 1–3, M4 in progress)
+
+- **Always available** — closing the window keeps PARKER in the system tray; press
+  **Ctrl+Alt+Space** in any app to talk, and it answers without switching windows. Optionally
+  starts with Windows.
 
 - **Desktop app** — a calm, golden window: a glowing status orb (listening, thinking, speaking),
   a centred conversation, one message bar with a mic button, and Agenda and Memories in a
@@ -52,7 +56,17 @@ The desktop app:
 ```powershell
 python -m frontend.app              # voice and microphone on
 python -m frontend.app --no-voice   # text only
+python -m frontend.app --background # start hidden in the system tray
 ```
+
+Or double-click **`parker.pyw`** to start PARKER without a terminal window.
+
+**Using PARKER from any app.** Closing the window hides PARKER to the system tray (the icons by
+the clock) instead of quitting. Press **Ctrl+Alt+Space** anywhere to talk, and again when you've
+finished; PARKER answers aloud. Click the tray icon to open the window; right-click it and
+choose **Quit PARKER** to exit completely. The shortcut can be changed, and "Start with Windows"
+switched on, in the settings menu. The shortcut uses Windows' `RegisterHotKey`, so PARKER is
+told only about that one key combination and never sees your other typing.
 
 Shortcuts: **Ctrl+Space** talk (press again when you've finished), **Esc** stop speaking or
 close the drawer, **Enter** send, **Ctrl+1** agenda, **Ctrl+2** memories. The mic button turns
@@ -132,6 +146,9 @@ frontend/
   worker.py          # runs the model, microphone and voice off the window thread
   orb.py             # the animated status orb
   icons.py           # line icons drawn in code
+  hotkey.py          # the system-wide talk shortcut (Windows RegisterHotKey)
+  autostart.py       # optional "Start with Windows"
+parker.pyw           # double-click launcher without a console window
   theme.py           # the golden colour palette and styles
 tests/               # one test file per module
 docs/                # architecture, roadmap, changelog, credits
