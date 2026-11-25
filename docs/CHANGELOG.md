@@ -2,6 +2,20 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## Unreleased – Milestone 4: reminders
+
+### Added
+- "remind me …" (typed or spoken) with relative times ("in 20 minutes", "in half an hour", "in
+  1.5 hours", number words), clock times ("at 6 pm", "at 18:30", "at 3" meaning the next 3
+  o'clock, "noon") and days ("tomorrow", "tonight", "on Friday").
+- The desktop app checks every 5 seconds and speaks due reminders, with a tray notification,
+  even while hidden; the terminal announces them between messages. Missed reminders are
+  mentioned on the next start.
+- `/reminders`, `/reminder cancel <id>`, and a Reminders list in the Agenda drawer (Delete to
+  cancel).
+- Questions such as "remind me what my exam date is" still go to the model; the model is told it
+  cannot set reminders itself.
+
 ## Unreleased – Milestone 4: opening apps
 
 ### Added

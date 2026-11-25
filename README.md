@@ -6,6 +6,9 @@ no subscriptions, and nothing you say leaves the machine.
 
 ## What works today (Milestones 1–3, M4 in progress)
 
+- **Reminders** — "remind me in 20 minutes to stretch", "remind me at 6 pm to call Mum",
+  "remind me tomorrow at 9 to submit the assignment". Spoken aloud on time, even from the tray;
+  missed ones are mentioned when PARKER next starts.
 - **Opens apps and folders** — "open VS Code", "launch Chrome", "open my Downloads". Only Start
   Menu apps, a few Windows tools, your standard folders and entries you add; the model never
   runs anything.
@@ -101,6 +104,8 @@ In the chat:
 | `/plans`, `/done <id>` | List open plans, tick one off |
 | `/event <day> [HH:MM] <what>` | Add an event, e.g. `/event today 18:00 Gym` (day: `today`, `tomorrow`, `friday`, `2026-12-03` or `3/12`) |
 | `/events`, `/cancel <id>` | List the next 7 days, delete an event |
+| `remind me …` (typed or spoken) | e.g. "remind me in 20 minutes to stretch", "remind me on Friday at 10 am about the hackathon" |
+| `/reminders`, `/reminder cancel <id>` | List upcoming reminders, cancel one (or select it in the Agenda drawer and press Delete) |
 | `open <app or folder>` (typed or spoken) | e.g. "open VS Code", "open my Downloads folder" |
 | `/apps [search]` | List what PARKER can open (`/apps refresh` after installing something) |
 | `/app add <name> = <path or web address>` | Teach PARKER a new one, e.g. `/app add Timetable = https://…` |
@@ -147,6 +152,7 @@ backend/
   memory.py          # long-term facts in SQLite
   agenda.py          # plans and events (same database)
   apps.py            # opening apps and folders by name
+  reminders.py       # "remind me …": understanding, storing and firing reminders
   greeting.py        # startup greeting built from the agenda
   speech_input.py    # microphone recording + speech-to-text
   speech_output.py   # text-to-speech + playback

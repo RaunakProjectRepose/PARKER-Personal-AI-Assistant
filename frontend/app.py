@@ -83,7 +83,9 @@ from backend.main import (
     handle_agenda,
     handle_apps,
     handle_memory,
+    handle_reminders,
 )
+from backend.reminders import Reminders, announcement
 from backend.memory import Memory, MemoryStoreError
 from frontend import autostart, theme
 from frontend.hotkey import (
@@ -300,10 +302,12 @@ class MemoriesPanel(QWidget):
 class AgendaPanel(QWidget):
     changed = Signal()
 
-    def __init__(self, agenda: Agenda | None, today=date.today) -> None:
+    def __init__(self, agenda: Agenda | None, today=date.today, reminders=None, now=datetime.now) -> None:
         super().__init__()
         self.agenda = agenda
+        self.reminders = reminders
         self._today = today
+        self._now = now
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
@@ -316,6 +320,17 @@ class AgendaPanel(QWidget):
         self.plan_entry.setPlaceholderText("Add a plan, then press Enter")
         self.plan_entry.returnPressed.connect(self.add_plan)
         layout.addWidget(self.plan_entry)
+
+        layout.addSpacing(14)
+        self.reminders_title = _section("Reminders")
+        layout.addWidget(self.reminders_title)
+        self.reminder_list = _clean_list()
+        self.reminder_list.setToolTip('Say "remind me in 20 minutes to stretch". Select one and press Delete to cancel.')
+        self.reminder_list.setMaximumHeight(150)
+        layout.addWidget(self.reminder_list)
+        QShortcut(QKeySequence.StandardKey.Delete, self.reminder_list, activated=self.cancel_selected_reminder)
+        self.reminders_title.setVisible(reminders is not None)
+        self.reminder_list.setVisible(reminders is not None)
 
         layout.addSpacing(14)
         layout.addWidget(_section("Next 7 days"))
@@ -343,6 +358,18 @@ class AgendaPanel(QWidget):
     def refresh(self) -> None:
         today = self._today()
         self.event_day.setDate(QDate(today.year, today.month, today.day))
+        self.reminder_list.clear()
+        if self.reminders is not None:
+            now = self._now()
+            upcoming = self.reminders.upcoming()
+            for reminder in upcoming:
+                item = QListWidgetItem(f"{reminder.text}\n{reminder.when(now)}")
+                item.setData(Qt.ItemDataRole.UserRole, reminder.id)
+                self.reminder_list.addItem(item)
+            if not upcoming:
+                hint = QListWidgetItem('None yet. Try "remind me in 20 minutes to stretch".')
+                hint.setFlags(Qt.ItemFlag.NoItemFlags)
+                self.reminder_list.addItem(hint)
         self.plans.blockSignals(True)
         self.plans.clear()
         self.events.clear()
@@ -391,6 +418,14 @@ class AgendaPanel(QWidget):
             return
         self.event_text.clear()
         self.event_time.clear()
+        self.refresh()
+        self.changed.emit()
+
+    def cancel_selected_reminder(self) -> None:
+        for item in self.reminder_list.selectedItems():
+            reminder_id = item.data(Qt.ItemDataRole.UserRole)
+            if reminder_id is not None:
+                self.reminders.cancel(reminder_id)
         self.refresh()
         self.changed.emit()
 
@@ -478,10 +513,12 @@ class MainWindow(QMainWindow):
         settings: QSettings | None = None,
         start_hidden: bool = False,
         apps: AppLauncher | None = None,
+        reminders: Reminders | None = None,
     ) -> None:
         super().__init__()
         self.assistant = assistant
         self.apps = apps
+        self.reminders = reminders
         self.settings = settings or QSettings("PARKER", "PARKER")
         self.start_hidden = start_hidden
         self._quitting = False
@@ -579,7 +616,10 @@ class MainWindow(QMainWindow):
 
         # ---- drawer ------------------------------------------------------------
         self.memories_panel = MemoriesPanel(assistant.memory)
-        self.agenda_panel = AgendaPanel(assistant.agenda, today=lambda: self._now().date())
+        self.agenda_panel = AgendaPanel(
+            assistant.agenda, today=lambda: self._now().date(), reminders=reminders,
+            now=lambda: self._now(),
+        )
         self.drawer = Drawer({"Agenda": self.agenda_panel, "Memories": self.memories_panel})
         outer.addWidget(self.drawer)
         self.agenda_button.clicked.connect(lambda: self.toggle_drawer("Agenda"))
@@ -675,6 +715,12 @@ class MainWindow(QMainWindow):
                     f"{self.hotkey_text}. You can change it in settings.",
                 )
 
+        # Reminders are checked every few seconds on the window thread, so they
+        # are announced on time even while PARKER is hidden in the tray.
+        self._reminder_timer = QTimer(self)
+        self._reminder_timer.setInterval(5_000)
+        self._reminder_timer.timeout.connect(self.check_reminders)
+
         self.set_state("loading")
         self.load_requested.emit()
 
@@ -717,6 +763,8 @@ class MainWindow(QMainWindow):
             self.chat.add("note", notes)
         self.set_state(self.state)
         self.greet()
+        self.check_reminders()  # anything missed while PARKER was closed
+        self._reminder_timer.start()
 
     def greet(self) -> None:
         agenda = self.assistant.agenda
@@ -728,6 +776,21 @@ class MainWindow(QMainWindow):
         self.chat.add("parker", text)
         if not self.start_hidden:  # stay quiet when Windows starts PARKER at login
             self.say_requested.emit(text)
+
+    # ---- reminders --------------------------------------------------------------
+    def check_reminders(self) -> None:
+        if self.reminders is None:
+            return
+        now = self._now()
+        fired = self.reminders.due(now)
+        for reminder in fired:
+            text = announcement(reminder, now)
+            self.chat.add("parker", text)
+            self.say_requested.emit(text)  # spoken even when the window is hidden
+            if self.tray is not None:
+                self.tray.showMessage("PARKER reminder", reminder.text, tray_icon("speaking"), 10_000)
+        if fired:
+            self.agenda_panel.refresh()
 
     # ---- tray and hotkey -------------------------------------------------------
     def _build_tray(self) -> None:
@@ -926,6 +989,9 @@ class MainWindow(QMainWindow):
         if handle_agenda(text, self.assistant.agenda, self._say, self._print, self._now().date()):
             self.agenda_panel.refresh()
             return
+        if handle_reminders(text, self.reminders, self._say, self._print, self._now()):
+            self.agenda_panel.refresh()
+            return
         if handle_apps(text, self.apps, self._say, self._print):
             return
         if text.startswith("/"):
@@ -991,7 +1057,7 @@ def main(argv: list[str] | None = None) -> int:
     app.setStyleSheet(theme.STYLESHEET)
     app.setFont(theme.font(theme.SANS, 10))
 
-    memory = agenda = apps = None
+    memory = agenda = apps = reminders = None
     try:
         memory, agenda = Memory(), Agenda()
     except Exception as err:  # e.g. a locked database file
@@ -1000,6 +1066,10 @@ def main(argv: list[str] | None = None) -> int:
         apps = AppLauncher()
     except Exception:  # opening apps is optional; PARKER works without it
         apps = None
+    try:
+        reminders = Reminders()
+    except Exception:
+        reminders = None
 
     window = MainWindow(
         Assistant(memory=memory, agenda=agenda),
@@ -1007,13 +1077,14 @@ def main(argv: list[str] | None = None) -> int:
         make_listener=None if args.no_voice else default_listener,
         start_hidden=args.background,
         apps=apps,
+        reminders=reminders,
     )
     if window.tray is None:
         app.setQuitOnLastWindowClosed(True)  # no tray: closing really quits
     if not (args.background and window.tray is not None):
         window.show()
     code = app.exec()
-    for store in (memory, agenda, apps):
+    for store in (memory, agenda, apps, reminders):
         if store is not None:
             store.close()
     return code

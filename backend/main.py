@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta
 
 from backend.agenda import Agenda, AgendaError, parse_event
 from backend.apps import AppError, AppLauncher, parse_open_request
+from backend.reminders import ReminderError, Reminders, announcement, parse_reminder
 from backend.assistant import Assistant
 from backend.brain import MODEL, OWNER_NAME, BrainError
 from backend.greeting import build_greeting
@@ -39,6 +40,9 @@ HELP_TEXT = """Commands:
                        (day: today, tomorrow, friday, 2026-12-03 or 3/12)
   /events              list events for the next 7 days
   /cancel <id>         delete an event
+  remind me ...        e.g. "remind me in 20 minutes to stretch", "remind me at 6 pm to call Mum"
+  /reminders           list upcoming reminders
+  /reminder cancel <id>   cancel one
   open <app or folder> e.g. "open VS Code", "open my Downloads" (typed or spoken)
   /apps [search]       list apps PARKER can open
   /app add <name> = <path or web address>   teach PARKER a new one
@@ -122,6 +126,56 @@ def handle_memory(message: str, memory: Memory | None, say, print_fn, input_fn) 
     except MemoryStoreError as err:
         print_fn(f"PARKER: {err}\n")
     return True
+
+
+def handle_reminders(message: str, reminders: Reminders | None, say, print_fn, now: datetime) -> bool:
+    """Handle "remind me ..." and the /reminders commands. True if handled."""
+    command, _, rest = message.partition(" ")
+    command = command.lower()
+    if command in ("/reminders", "/reminder"):
+        if reminders is None:
+            print_fn("PARKER: Reminders aren't available right now.\n")
+            return True
+        sub, _, arg = rest.strip().partition(" ")
+        if command == "/reminder" and sub.lower() == "cancel" and arg.strip().isdigit():
+            if reminders.cancel(int(arg)):
+                say("Reminder cancelled.")
+            else:
+                print_fn(f"PARKER: There's no upcoming reminder with id {arg.strip()}.\n")
+        elif command == "/reminders" and not rest.strip():
+            upcoming = reminders.upcoming()
+            if not upcoming:
+                print_fn('PARKER: No reminders set. Try "remind me in 20 minutes to stretch".\n')
+            else:
+                lines = "\n".join(f"  [{r.id}] {r.when(now)}: {r.text}" for r in upcoming)
+                print_fn(f"PARKER: Upcoming reminders:\n{lines}\n")
+        else:
+            print_fn("Usage: /reminders  ·  /reminder cancel <id>\n")
+        return True
+
+    try:
+        parsed = parse_reminder(message, now)
+    except ReminderError as err:
+        if reminders is None:
+            return False
+        print_fn(f"PARKER: {err}\n")
+        return True
+    if parsed is None or reminders is None:
+        return False
+    due, text = parsed
+    reminder = reminders.add(due, text)
+    say(f"Done. I'll remind you {reminder.when(now)}: {text}.")
+    return True
+
+
+def announce_due_reminders(reminders: Reminders | None, say, now: datetime) -> int:
+    """Say every reminder that has fallen due. Returns how many there were."""
+    if reminders is None:
+        return 0
+    fired = reminders.due(now)
+    for reminder in fired:
+        say(announcement(reminder, now))
+    return len(fired)
 
 
 def handle_apps(message: str, apps: AppLauncher | None, say, print_fn) -> bool:
@@ -246,6 +300,7 @@ def run(
     now=datetime.now,
     timing_fn=None,
     apps: AppLauncher | None = None,
+    reminders: Reminders | None = None,
 ) -> None:
     """Read messages, print (and optionally speak) PARKER's replies, until the user quits.
 
@@ -284,6 +339,9 @@ def run(
         say(build_greeting(OWNER_NAME, agenda.open_plans(), agenda.events_on(today), now()))
 
     while True:
+        # The terminal can only speak between messages; the desktop app announces
+        # reminders on time, even from the tray.
+        announce_due_reminders(reminders, say, now())
         try:
             message = input_fn("You: ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -319,6 +377,8 @@ def run(
             if handle_memory(message, assistant.memory, say, print_fn, input_fn):
                 continue
             if handle_agenda(message, assistant.agenda, say, print_fn, now().date()):
+                continue
+            if handle_reminders(message, reminders, say, print_fn, now()):
                 continue
             if handle_apps(message, apps, say, print_fn):
                 continue
@@ -395,6 +455,11 @@ def main(argv: list[str] | None = None) -> None:
         apps = AppLauncher()
     except Exception as err:
         print(f"[apps error] {err}\nContinuing without opening apps.\n")
+    reminders = None
+    try:
+        reminders = Reminders()
+    except Exception as err:
+        print(f"[reminders error] {err}\nContinuing without reminders.\n")
 
     try:
         run(
@@ -403,9 +468,10 @@ def main(argv: list[str] | None = None) -> None:
             listen_fn=listen_fn,
             timing_fn=timing_fn,
             apps=apps,
+            reminders=reminders,
         )
     finally:
-        for store in (memory, agenda, apps, speaker):
+        for store in (memory, agenda, apps, reminders, speaker):
             if store is not None:
                 store.close()
 
