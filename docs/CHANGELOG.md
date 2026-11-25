@@ -7,8 +7,13 @@ All notable changes to PARKER. Dates are when the change reached `main`.
 ### Added
 - System tray: closing the window hides PARKER instead of quitting; the tray icon glows while
   listening or speaking. "Quit PARKER" in the tray menu exits completely.
-- Global shortcut **Ctrl+Alt+Space** to talk from any app, using Windows' `RegisterHotKey` (only
-  that combination is reported; no keyboard hook). Changeable in settings and remembered.
+- Global shortcut **Ctrl+Alt+P** to talk from any app, using Windows' `RegisterHotKey` (only
+  that combination is reported; no keyboard hook). Changeable in settings and remembered. If the
+  default is taken, a free alternative is chosen automatically and announced; a shortcut that
+  can't be registered is reported in the chat and the tray. `python -m frontend.hotkey --test`
+  checks a shortcut on its own.
+- First laptop test: Ctrl+Alt+Space did nothing, most likely because the Claude desktop app uses
+  the same combination, so the default changed to Ctrl+Alt+P.
 - Optional "Start with Windows" (adds/removes one entry under the current user's Run key) and a
   `--background` mode that starts hidden and keeps the greeting silent.
 - `parker.pyw` launcher to run PARKER without a console window.

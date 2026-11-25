@@ -7,7 +7,7 @@ Run from the project folder, with Ollama running:
 
     python -m frontend.app --background # start hidden in the system tray
 
-Shortcuts: Ctrl+Alt+Space talk from any app (global) · Ctrl+Space talk /
+Shortcuts: Ctrl+Alt+P talk from any app (global) · Ctrl+Space talk /
 finish talking · Esc stop speaking or close the drawer · Enter send ·
 Ctrl+1 agenda · Ctrl+2 memories.
 
@@ -78,7 +78,13 @@ from backend.greeting import build_greeting, time_of_day
 from backend.main import HELP_TEXT, QUIT_COMMANDS, RESET_COMMAND, handle_agenda, handle_memory
 from backend.memory import Memory, MemoryStoreError
 from frontend import autostart, theme
-from frontend.hotkey import DEFAULT_HOTKEY, GlobalHotkey, HotkeyError, parse_hotkey
+from frontend.hotkey import (
+    DEFAULT_HOTKEY,
+    FALLBACK_HOTKEYS,
+    GlobalHotkey,
+    HotkeyError,
+    parse_hotkey,
+)
 from frontend.icons import icon
 from frontend.orb import StatusOrb
 from frontend.worker import Worker, default_listener, default_speaker
@@ -634,10 +640,30 @@ class MainWindow(QMainWindow):
             self._build_tray()
         self._make_hotkey = make_hotkey
         self.hotkey = None
-        self.hotkey_text = os.environ.get("PARKER_HOTKEY") or str(
-            self.settings.value("hotkey", DEFAULT_HOTKEY)
-        )
-        self._start_hotkey(self.hotkey_text)
+        chosen = os.environ.get("PARKER_HOTKEY") or self.settings.value("hotkey")
+        if make_hotkey is None:  # shortcut switched off (e.g. in tests)
+            self.hotkey_text = str(chosen or DEFAULT_HOTKEY)
+            self.hotkey_action.setText(f"Talk from any app: {self.hotkey_text}…")
+        elif chosen:  # the user picked one: use exactly that, and say if it fails
+            self.hotkey_text = str(chosen)
+            self._start_hotkey(self.hotkey_text)
+        else:  # default: try a few until one is free
+            self.hotkey_text = DEFAULT_HOTKEY
+            for candidate in FALLBACK_HOTKEYS:
+                self.hotkey_text = candidate
+                if self._start_hotkey(candidate, report_failure=False):
+                    break
+            else:
+                self._hotkey_failed(
+                    "Couldn't set up a talk-from-any-app shortcut: all the usual ones are taken. "
+                    "Choose one in the settings menu."
+                )
+            if self.hotkey_text != DEFAULT_HOTKEY and self.hotkey is not None and self.hotkey.active:
+                self.chat.add(
+                    "note",
+                    f"{DEFAULT_HOTKEY} is used by another app, so the talk shortcut is "
+                    f"{self.hotkey_text}. You can change it in settings.",
+                )
 
         self.set_state("loading")
         self.load_requested.emit()
@@ -725,7 +751,7 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
-    def _start_hotkey(self, text: str) -> bool:
+    def _start_hotkey(self, text: str, report_failure: bool = True) -> bool:
         if self.hotkey is not None:
             self.hotkey.stop()
             self.hotkey = None
@@ -739,7 +765,8 @@ class MainWindow(QMainWindow):
             return False
         # Emitted from the hotkey's own thread: queue it onto the window thread.
         hotkey.pressed.connect(self._hotkey_pressed, Qt.ConnectionType.QueuedConnection)
-        hotkey.failed.connect(self._hotkey_failed, Qt.ConnectionType.QueuedConnection)
+        if report_failure:
+            hotkey.failed.connect(self._hotkey_failed, Qt.ConnectionType.QueuedConnection)
         self.hotkey = hotkey
         if hasattr(self, "tray_talk"):
             self.tray_talk.setText(f"Talk ({text})")
@@ -763,12 +790,15 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def _hotkey_failed(self, message: str) -> None:
-        self.chat.add("note", message)
+        # Make it impossible to miss: a chat note and, if available, a tray notice.
+        self.chat.add("error", message)
+        if self.tray is not None:
+            self.tray.showMessage("PARKER shortcut", message, tray_icon("idle"), 6000)
 
     def change_hotkey(self) -> None:
         text, ok = QInputDialog.getText(
             self, "Talk from any app",
-            "Shortcut (e.g. Ctrl+Alt+Space, Ctrl+Shift+P, Alt+F9):", text=self.hotkey_text,
+            "Shortcut (e.g. Ctrl+Alt+P, Ctrl+Shift+Space, Alt+F9):", text=self.hotkey_text,
         )
         if not ok or not text.strip():
             return

@@ -7,7 +7,7 @@ no subscriptions, and nothing you say leaves the machine.
 ## What works today (Milestones 1–3, M4 in progress)
 
 - **Always available** — closing the window keeps PARKER in the system tray; press
-  **Ctrl+Alt+Space** in any app to talk, and it answers without switching windows. Optionally
+  **Ctrl+Alt+P** in any app to talk, and it answers without switching windows. Optionally
   starts with Windows.
 
 - **Desktop app** — a calm, golden window: a glowing status orb (listening, thinking, speaking),
@@ -62,11 +62,13 @@ python -m frontend.app --background # start hidden in the system tray
 Or double-click **`parker.pyw`** to start PARKER without a terminal window.
 
 **Using PARKER from any app.** Closing the window hides PARKER to the system tray (the icons by
-the clock) instead of quitting. Press **Ctrl+Alt+Space** anywhere to talk, and again when you've
+the clock) instead of quitting. Press **Ctrl+Alt+P** anywhere to talk, and again when you've
 finished; PARKER answers aloud. Click the tray icon to open the window; right-click it and
 choose **Quit PARKER** to exit completely. The shortcut can be changed, and "Start with Windows"
 switched on, in the settings menu. The shortcut uses Windows' `RegisterHotKey`, so PARKER is
-told only about that one key combination and never sees your other typing.
+told only about that one key combination and never sees your other typing. If another app
+already uses Ctrl+Alt+P, PARKER picks a free alternative and tells you which. To check that
+Windows delivers a shortcut at all, run `python -m frontend.hotkey --test "Ctrl+Alt+P"`.
 
 Shortcuts: **Ctrl+Space** talk (press again when you've finished), **Esc** stop speaking or
 close the drawer, **Enter** send, **Ctrl+1** agenda, **Ctrl+2** memories. The mic button turns

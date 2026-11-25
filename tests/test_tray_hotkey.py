@@ -211,14 +211,20 @@ def test_launch_command_uses_the_launcher_in_background_mode():
 class FakeHotkey(QObject):
     pressed = Signal()
     failed = Signal(str)
+    taken: set = set()  # shortcuts "another app" already uses
 
     def __init__(self, text):
         super().__init__()
         self.text = text
         self.started = self.stopped = 0
+        self.active = False
 
     def start(self):
         self.started += 1
+        if self.text in FakeHotkey.taken:
+            self.failed.emit(f"Couldn't use {self.text}: another app may already be using it.")
+            return False
+        self.active = True
         return True
 
     def stop(self):
@@ -289,12 +295,12 @@ def test_tray_icon_follows_the_state(app, tmp_path):
     window.quit_app()
 
 
-def test_default_hotkey_is_ctrl_alt_space_and_can_be_changed(app, tmp_path, monkeypatch):
+def test_default_hotkey_is_ctrl_alt_p_and_can_be_changed(app, tmp_path, monkeypatch):
     from PySide6.QtWidgets import QInputDialog
 
     monkeypatch.delenv("PARKER_HOTKEY", raising=False)
     window, hotkeys, _ = make_window(app, tmp_path)
-    assert hotkeys[0].text == "Ctrl+Alt+Space"
+    assert hotkeys[0].text == "Ctrl+Alt+P"
     monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("Ctrl+Shift+P", True))
     window.change_hotkey()
     assert hotkeys[0].stopped == 1 and hotkeys[1].text == "Ctrl+Shift+P"
@@ -323,3 +329,40 @@ def test_starting_in_the_background_does_not_speak_the_greeting(app, tmp_path):
     assert window.chat.messages[0][0] == "parker"  # greeting is still in the chat
     assert spoken == []
     window.quit_app()
+
+
+
+def test_taken_default_falls_back_to_a_free_shortcut_and_says_so(app, tmp_path, monkeypatch):
+    monkeypatch.delenv("PARKER_HOTKEY", raising=False)
+    monkeypatch.setattr(FakeHotkey, "taken", {"Ctrl+Alt+P"})
+    window, hotkeys, _ = make_window(app, tmp_path)
+    assert [h.text for h in hotkeys] == ["Ctrl+Alt+P", "Ctrl+Shift+Space"]
+    assert window.hotkey_text == "Ctrl+Shift+Space"
+    process_events(0.1)
+    assert any("the talk shortcut is Ctrl+Shift+Space" in text for _, text in window.chat.messages)
+    assert not any(kind == "error" for kind, _ in window.chat.messages)  # fallback is not an error
+    window.quit_app()
+
+
+def test_a_chosen_shortcut_that_is_taken_is_reported_loudly(app, tmp_path, monkeypatch):
+    monkeypatch.setenv("PARKER_HOTKEY", "Ctrl+Alt+Space")
+    monkeypatch.setattr(FakeHotkey, "taken", {"Ctrl+Alt+Space"})
+    window, hotkeys, _ = make_window(app, tmp_path)
+    process_events(0.1)
+    assert [h.text for h in hotkeys] == ["Ctrl+Alt+Space"]  # no silent switching
+    assert ("error", "Couldn't use Ctrl+Alt+Space: another app may already be using it.") in window.chat.messages
+    window.quit_app()
+
+
+def test_hotkey_diagnostic_reports_a_refused_shortcut(monkeypatch, capsys):
+    import frontend.hotkey as hk
+
+    class Refused(hk.GlobalHotkey):
+        def start(self):
+            self.failed.emit("taken")
+            return False
+
+    monkeypatch.setattr(hk, "GlobalHotkey", Refused)
+    QCoreApplication.instance() or QCoreApplication([])
+    assert hk._test("Ctrl+Alt+Space", seconds=0) == 1
+    assert "Windows refused Ctrl+Alt+Space" in capsys.readouterr().out
