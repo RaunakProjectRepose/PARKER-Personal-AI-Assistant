@@ -37,19 +37,42 @@ SYSTEM_PROMPT = (
     "If you are unsure of something, say so plainly rather than guessing. "
     "Never invent facts about the user: if they ask about their own "
     "preferences, plans or details that they have not told you in this "
-    "conversation, say that you don't know and invite them to tell you."
+    "conversation or in your saved memories, say that you don't know and "
+    "invite them to tell you."
 )
+
+
+def system_prompt(facts: list[str] | None = None) -> str:
+    """The system prompt, with any saved memories about the owner added."""
+    if not facts:
+        return SYSTEM_PROMPT + (
+            " You have no saved memories about your owner yet. They can ask you "
+            "to remember something by saying \"remember that...\"."
+        )
+    listed = "\n".join(f"- {fact}" for fact in facts)
+    return (
+        f"{SYSTEM_PROMPT}\n\n"
+        "Saved memories: things your owner asked you to remember, in their own "
+        "words, so \"I\" and \"my\" mean the owner:\n"
+        f"{listed}\n"
+        "Use these naturally when relevant, and list them if asked what you "
+        "remember. You remember nothing else from earlier sessions."
+    )
 
 
 class BrainError(Exception):
     """Raised when PARKER cannot get a reply from the language model."""
 
 
-def build_messages(user_message: str, history: list[dict] | None = None) -> list[dict]:
+def build_messages(
+    user_message: str,
+    history: list[dict] | None = None,
+    facts: list[str] | None = None,
+) -> list[dict]:
     """Return the full message list: system prompt, earlier turns, new message."""
     if not user_message or not user_message.strip():
         raise ValueError("user_message must not be empty")
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": system_prompt(facts)}]
     messages.extend(history or [])
     messages.append({"role": "user", "content": user_message.strip()})
     return messages
@@ -59,6 +82,7 @@ def generate_response(
     user_message: str,
     history: list[dict] | None = None,
     *,
+    facts: list[str] | None = None,
     model: str = MODEL,
     base_url: str = OLLAMA_URL,
     timeout: float = TIMEOUT_SECONDS,
@@ -66,11 +90,12 @@ def generate_response(
     """Send a message to the local model and return PARKER's reply as text.
 
     ``history`` is a list of earlier turns, each ``{"role": "user" | "assistant",
-    "content": "..."}``. It is not modified.
+    "content": "..."}``. It is not modified. ``facts`` are saved memories
+    added to the system prompt.
     """
     payload = {
         "model": model,
-        "messages": build_messages(user_message, history),
+        "messages": build_messages(user_message, history, facts),
         "stream": False,  # One complete reply; streaming comes later for voice.
         "think": False,  # Thinking mode took ~34 s per reply; off takes < 1 s.
     }

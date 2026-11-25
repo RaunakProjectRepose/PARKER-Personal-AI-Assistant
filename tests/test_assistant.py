@@ -13,8 +13,9 @@ class FakeBrain:
         self.calls = []
         self.fail = fail
 
-    def __call__(self, message, history):
+    def __call__(self, message, history, facts=None):
         self.calls.append((message, history))
+        self.facts = facts
         if self.fail:
             raise BrainError("offline")
         return f"reply {len(self.calls)}"
@@ -69,3 +70,19 @@ def test_reset_forgets_everything():
 def test_max_turns_must_be_positive():
     with pytest.raises(ValueError):
         Assistant(generate=FakeBrain(), max_turns=0)
+
+
+def test_saved_memories_are_sent_with_every_message():
+    from backend.memory import Memory
+
+    memory = Memory(":memory:")
+    memory.add("My favourite colour is blue")
+    fake = FakeBrain()
+    Assistant(generate=fake, memory=memory).ask("What's my favourite colour?")
+    assert fake.facts == ["My favourite colour is blue"]
+
+
+def test_no_memory_means_no_facts():
+    fake = FakeBrain()
+    Assistant(generate=fake).ask("Hello")
+    assert fake.facts == []

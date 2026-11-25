@@ -4,8 +4,8 @@ The brain answers one message at a time and remembers nothing. This module
 keeps the recent conversation and passes it to the brain with every new
 message, so PARKER can follow along ("What did I just ask you?").
 
-Memory here lasts only while the program runs. Saving memories between
-sessions is Milestone 2.
+The conversation itself lasts only while the program runs. Facts you ask
+PARKER to remember are kept in `memory.py` and survive restarts.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Callable
 
 from backend import brain
+from backend.memory import Memory
 
 # Qwen is loaded with a 4096-token context window (see `ollama ps`).
 # Ten exchanges of short spoken-style replies fit comfortably inside it.
@@ -26,6 +27,7 @@ class Assistant:
         self,
         generate: Callable[..., str] = brain.generate_response,
         max_turns: int = DEFAULT_MAX_TURNS,
+        memory: Memory | None = None,
     ) -> None:
         if max_turns < 1:
             raise ValueError("max_turns must be at least 1")
@@ -33,6 +35,7 @@ class Assistant:
         self._generate = generate
         self.max_turns = max_turns
         self.history: list[dict] = []
+        self.memory = memory  # Long-term facts; None means no saved memory.
 
     def ask(self, user_message: str) -> str:
         """Send a message to PARKER and return the reply.
@@ -41,7 +44,8 @@ class Assistant:
         unchanged, so a failed message is not half-remembered.
         """
         text = user_message.strip()
-        reply = self._generate(text, list(self.history))
+        facts = self.memory.texts() if self.memory else []
+        reply = self._generate(text, list(self.history), facts=facts)
         self.history.append({"role": "user", "content": text})
         self.history.append({"role": "assistant", "content": reply})
         self._trim()

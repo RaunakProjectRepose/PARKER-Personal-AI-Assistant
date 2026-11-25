@@ -3,7 +3,7 @@
 | Milestone | Scope | Done when | Status |
 |---|---|---|---|
 | **M1 – Voice Foundation** | Local model, text chat, speech input and output | You can speak to PARKER and it replies aloud | Complete |
-| **M2 – Personality & Memory** | Refined personality, persistent memory in SQLite | Memories survive a restart and can be reviewed and edited | Next |
+| **M2 – Personality & Memory** | Refined personality, persistent memory in SQLite | Memories survive a restart and can be reviewed and edited | In progress: persistent memory added |
 | **M3 – Desktop Experience** | PySide6 window, transcript, status indicators, voice visualiser | A usable Windows app with a clearly visible listening state | Planned |
 | **M4 – Skills & Actions** | Allowlisted tools: open apps, files, reminders, research, calendar/email | Every action is permissioned and tested | Planned |
 | **M5 – Android Companion** | Mobile UI with a secure connection to the laptop | Authenticated access and reliable reconnect | Planned |

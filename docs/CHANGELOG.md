@@ -2,6 +2,13 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## Unreleased – Milestone 2: memory
+
+### Added
+- Long-term memory in SQLite (`backend/memory.py`): say or type "remember that…" to save a fact.
+- `/remember`, `/memories`, `/edit`, `/forget`, `/forget all` and `/help` commands.
+- Saved memories are added to PARKER's instructions, so it knows them in every session.
+
 ## 2026-11-25 – Licence
 
 ### Added

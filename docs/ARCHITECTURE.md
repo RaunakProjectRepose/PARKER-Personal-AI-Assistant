@@ -22,7 +22,10 @@ speech_input.py ──text──► assistant.py ──messages──► brain.p
    pressed, then transcribes the audio locally with Faster-Whisper (`small.en`, CPU, int8).
    Audio stays in memory and is discarded after transcription.
 2. **Remembering** – `assistant.Assistant` keeps the last ten exchanges and passes them with
-   each new message. A message whose reply failed is not remembered.
+   each new message. A message whose reply failed is not remembered. Long-term facts come from
+   `memory.Memory` (SQLite, `memory/parker.db`) and are added to the system prompt every turn.
+   They are saved only when the owner says "remember that…" or uses `/remember`; those requests
+   are handled directly and never sent to the model.
 3. **Thinking** – `brain.generate_response()` sends the system prompt, history and new message
    to Ollama's `/api/chat` endpoint with thinking mode off, and returns the reply text.
 4. **Speaking** – `speech_output.Speaker` turns the reply into a WAV in memory with Piper,
@@ -37,6 +40,9 @@ speech_input.py ──text──► assistant.py ──messages──► brain.p
 | Thinking mode off | 34 s per reply with it on vs. under 1 s off (measured on the RTX 4060). |
 | System prompt names PARKER and Qwen | Without it the model claimed to be made by Google. |
 | System prompt forbids guessing user facts | After `/reset`, the model once invented a favourite colour. |
+| Memories saved only on request | Predictable and private; a small model would suggest wrong facts. |
+| Facts injected into the system prompt | Simple and reliable for tens of facts; search can come later if the list grows. |
+| `remember that…` handled in code, not by the model | Saving never depends on the model understanding the request. |
 | Ten-turn history limit | Qwen is loaded with a 4096-token context window. |
 | Push-to-talk, no wake word yet | Simpler, reliable, and the recording state is always obvious. |
 | Whisper on CPU first | Works without extra NVIDIA libraries; a 3.5 s clip transcribes in ~1.1 s. |

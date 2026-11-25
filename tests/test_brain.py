@@ -36,7 +36,7 @@ def post(monkeypatch):
 
 def test_system_prompt_comes_first_and_user_message_last():
     msgs = brain.build_messages("  Hi  ")
-    assert msgs[0] == {"role": "system", "content": brain.SYSTEM_PROMPT}
+    assert msgs[0] == {"role": "system", "content": brain.system_prompt()}
     assert msgs[-1] == {"role": "user", "content": "Hi"}
 
 
@@ -137,3 +137,19 @@ def test_system_prompt_knows_parker_can_hear_and_speak():
     # With --voice on, PARKER once said "I certainly can't hear you".
     assert "never claim you cannot hear them" in brain.SYSTEM_PROMPT
     assert "spoken aloud" in brain.SYSTEM_PROMPT
+
+
+def test_saved_memories_appear_in_the_system_prompt():
+    msgs = brain.build_messages("Hi", facts=["My name is Raunak", "I like cricket"])
+    system = msgs[0]["content"]
+    assert system.startswith(brain.SYSTEM_PROMPT)
+    assert "- My name is Raunak\n- I like cricket" in system
+
+
+def test_without_memories_the_prompt_says_so():
+    assert "no saved memories" in brain.build_messages("Hi")[0]["content"]
+
+
+def test_facts_are_sent_to_ollama(post):
+    brain.generate_response("Hi", facts=["I live in Pune"])
+    assert "- I live in Pune" in post.call_args.kwargs["json"]["messages"][0]["content"]

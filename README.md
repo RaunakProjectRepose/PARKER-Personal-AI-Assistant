@@ -10,6 +10,8 @@ no subscriptions, and nothing you say leaves the machine.
 - **Local brain** — Qwen 3.5 4B through Ollama, running fully on the GPU (~0.9 s per reply).
 - **Spoken replies** — Piper TTS with a British-English voice (`en_GB-alba-medium`).
 - **Conversation memory** — remembers the last ten exchanges within a session; `/reset` clears it.
+- **Long-term memory** — say "remember that…" and PARKER keeps it across restarts, in a private
+  SQLite file that never leaves your laptop. Nothing is saved unless you ask.
 - **Honest by design** — tells you when it doesn't know something instead of guessing.
 - **Private** — recordings are kept in memory only and never written to disk.
 
@@ -44,7 +46,18 @@ python -m backend.main --listen   # press Enter on an empty line to talk
 python -m backend.main --voice    # both: a full spoken conversation
 ```
 
-In the chat: `/reset` forgets the conversation, `/quit` (or Ctrl+C) leaves.
+In the chat:
+
+| Command | What it does |
+|---|---|
+| `remember that …` (typed or spoken) | Save a fact about you |
+| `/remember <fact>` | Same, as a command |
+| `/memories` | List everything PARKER remembers, with ids |
+| `/edit <id> <fact>` | Change a memory |
+| `/forget <id>` | Delete one memory |
+| `/forget all` | Delete every memory (asks first) |
+| `/reset` | Forget the current conversation; saved memories stay |
+| `/help`, `/quit` | Show commands, leave (or Ctrl+C) |
 
 Each part can also be tried on its own:
 
@@ -78,12 +91,14 @@ whole suite runs offline in under a second.
 backend/
   brain.py           # talks to the local model through Ollama
   assistant.py       # keeps the recent conversation
+  memory.py          # long-term facts in SQLite
   speech_input.py    # microphone recording + speech-to-text
   speech_output.py   # text-to-speech + playback
   main.py            # terminal chat that ties it together
 tests/               # one test file per module
 docs/                # architecture, roadmap, changelog, credits
 voices/              # downloaded voice files (ignored by Git)
+memory/              # your private memory database (ignored by Git)
 ```
 
 More detail: [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) ·
