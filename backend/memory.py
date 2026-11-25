@@ -20,13 +20,33 @@ DB_PATH = Path(os.environ.get("PARKER_MEMORY_DB", PROJECT_ROOT / "memory" / "par
 MAX_FACT_LENGTH = 300  # Keeps the system prompt (and the context window) in check.
 MAX_FACTS_IN_PROMPT = 50
 
-# "remember that my favourite colour is blue", "Parker, please remember I'm vegetarian"
-_REMEMBER = re.compile(
-    r"^(?:(?:hey|ok|okay)\s+)?(?:parker[\s,]+)?(?:please\s+)?remember\s+(?:that\s+)?(?P<fact>.+)$",
+# Separators Whisper may insert between words: "Remember, my favourite..."
+_SEP = r"[\s,.;:!-]+"
+_ASK = r"(?:remember|don'?t\s+forget|make\s+a\s+note|note\s+down|note)"
+
+# Request first: "remember that my favourite colour is blue",
+# "Parker, please remember I'm vegetarian", "Remember, my colour is blue",
+# "Can you remember that I study at night", "Don't forget that I'm allergic to nuts"
+_REQUEST_FIRST = re.compile(
+    rf"^(?:(?:hey|ok|okay){_SEP})?(?:parker{_SEP})?"
+    rf"(?:(?:can|could|will|would)\s+you{_SEP})?(?:please{_SEP})?"
+    rf"{_ASK}{_SEP}(?:(?:that|this){_SEP})?(?P<fact>.+)$",
+    re.IGNORECASE,
+)
+# Fact first: "My favourite colour is blue, do remember that.",
+# "I'm vegetarian. Please remember that", "I live in Pune, remember this"
+_FACT_FIRST = re.compile(
+    rf"^(?P<fact>.+?){_SEP}(?:(?:please|do|so|and)\s+)*(?:parker{_SEP})?"
+    rf"{_ASK}(?:{_SEP}(?:that|this|it))?(?:{_SEP}please)?(?:{_SEP}parker)?[\s.!]*$",
     re.IGNORECASE,
 )
 # "remember when...", "remember to buy milk" are not facts to store.
-_NOT_A_FACT = re.compile(r"^(?:when|to|what|how|why|if|who|where)\b", re.IGNORECASE)
+_NOT_A_FACT = re.compile(r"^(?:when|to|what|how|why|if|who|where|me)\b", re.IGNORECASE)
+_ENDS_WITH_POINTER = re.compile(r"\b(?:that|this|it)\W*(?:please|parker)?\W*$", re.IGNORECASE)
+# "Help me remember", "I want you to remember" are not facts either.
+_NOT_A_FACT_END = re.compile(r"\b(?:me|you|us|to)$", re.IGNORECASE)
+# Leftover words at the end of a fact: "I live in Pune, so" -> "I live in Pune"
+_TRAILING_FILLER = re.compile(r"[\s,.;:!-]+(?:so|and|please|do)?$", re.IGNORECASE)
 
 
 class MemoryStoreError(Exception):
@@ -45,11 +65,25 @@ def parse_remember_request(message: str) -> str | None:
     text = message.strip()
     if text.endswith("?"):
         return None  # "Do you remember ...?" / "Remember what I said?" are questions.
-    match = _REMEMBER.match(text)
+    match = _REQUEST_FIRST.match(text)
+    if not match:
+        match = _FACT_FIRST.match(text)
+        # Fact first needs a clear break before "remember" ("..., remember that")
+        # or an explicit "that/this/it" after it, so "Help me remember" is ignored.
+        if match and not (
+            re.match(r"\s*[,.;:!-]", text[match.end("fact"):])
+            or _ENDS_WITH_POINTER.search(text)
+        ):
+            match = None
     if not match:
         return None
-    fact = match.group("fact").strip().rstrip(".!").strip()
-    if not fact or _NOT_A_FACT.match(fact):
+    fact = match.group("fact").strip()
+    fact = _TRAILING_FILLER.sub("", fact).strip(" ,.;:!-")
+    if (
+        len(fact.split()) < 2  # "that", "things", "it"
+        or _NOT_A_FACT.match(fact)
+        or _NOT_A_FACT_END.search(fact)
+    ):
         return None
     return fact
 

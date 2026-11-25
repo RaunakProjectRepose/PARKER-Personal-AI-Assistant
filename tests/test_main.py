@@ -193,3 +193,16 @@ def test_memory_commands_without_a_memory_store():
 def test_ordinary_messages_still_go_to_the_model():
     out, memory, sent = memory_chat(["Do you remember my name?"])
     assert sent == [("Do you remember my name?", [])]
+
+
+
+def test_unknown_commands_are_not_sent_to_the_model():
+    out, memory, sent = memory_chat(["/memory"])
+    assert sent == []
+    assert "Unknown command /memory. Type /help for commands.\n" in out
+
+
+def test_fact_first_remember_request_from_laptop_test():
+    out, memory, sent = memory_chat(["My favorite color is blue, do remember that."])
+    assert [f.text for f in memory.all()] == ["My favorite color is blue"]
+    assert sent == []

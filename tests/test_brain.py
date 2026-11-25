@@ -153,3 +153,9 @@ def test_without_memories_the_prompt_says_so():
 def test_facts_are_sent_to_ollama(post):
     brain.generate_response("Hi", facts=["I live in Pune"])
     assert "- I live in Pune" in post.call_args.kwargs["json"]["messages"][0]["content"]
+
+
+
+def test_system_prompt_forbids_claiming_to_save_memories():
+    # PARKER once replied "I have noted that" when nothing had been saved.
+    assert "never say you have noted, saved or will remember" in brain.SYSTEM_PROMPT

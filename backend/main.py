@@ -184,6 +184,10 @@ def run(
         except (EOFError, KeyboardInterrupt):
             print_fn("\nPARKER: Goodbye.")
             return
+        if message.startswith("/"):
+            # A mistyped command like "/memory" must not be sent to the model.
+            print_fn(f"Unknown command {message.split()[0]}. Type /help for commands.\n")
+            continue
 
         try:
             reply = assistant.ask(message)

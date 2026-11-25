@@ -89,6 +89,15 @@ def test_texts_returns_most_recent_facts_oldest_first(memory):
         ("Please remember that I'm vegetarian!", "I'm vegetarian"),
         ("Parker, remember I prefer tea", "I prefer tea"),
         ("Hey Parker remember that I study at night", "I study at night"),
+        # Phrasings from the first laptop test (Whisper adds punctuation):
+        ("My favorite color is blue, do remember that.", "My favorite color is blue"),
+        ("Remember, my favorite color is blue.", "my favorite color is blue"),
+        ("Can you remember that I study at night", "I study at night"),
+        ("Don't forget that I'm allergic to nuts", "I'm allergic to nuts"),
+        ("I live in Pune, remember this", "I live in Pune"),
+        ("I'm vegetarian. Please remember that", "I'm vegetarian"),
+        ("Make a note that my exam is on Friday", "my exam is on Friday"),
+        ("My dog is called Max. Remember that, Parker.", "My dog is called Max"),
     ],
 )
 def test_remember_requests_are_understood(message, fact):
@@ -105,6 +114,13 @@ def test_remember_requests_are_understood(message, fact):
         "I can't remember the password",
         "What's the weather like?",
         "remember",
+        "I need to remember my keys",
+        "Help me remember",
+        "Can you remember things",
+        "Note that",
+        "Remember me",
+        "I want you to remember",
+        "That is hard to remember",
     ],
 )
 def test_other_messages_are_not_remember_requests(message):
