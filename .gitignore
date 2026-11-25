@@ -12,8 +12,11 @@ __pycache__/
 *.pem
 *.key
 
-# AI models
+# AI models and voices
 models/
+voices/
+*.onnx
+*.onnx.json
 *.gguf
 *.safetensors
 

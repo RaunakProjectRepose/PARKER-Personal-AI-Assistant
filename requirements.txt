@@ -1,1 +1,2 @@
 requests>=2.31
+piper-tts>=1.5  # GPL-3.0; en_GB-alba-medium needs Piper 1.5+

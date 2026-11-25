@@ -5,7 +5,7 @@ from backend.brain import BrainError
 from backend.main import run
 
 
-def chat(lines, generate=lambda message, history: f"echo: {message}"):
+def chat(lines, generate=lambda message, history: f"echo: {message}", speak_fn=None):
     """Run the loop with scripted input; return (printed lines, assistant)."""
     inputs = iter(lines)
 
@@ -17,7 +17,12 @@ def chat(lines, generate=lambda message, history: f"echo: {message}"):
 
     out = []
     assistant = Assistant(generate=generate)
-    run(assistant, input_fn=fake_input, print_fn=lambda *a: out.append(" ".join(map(str, a))))
+    run(
+        assistant,
+        input_fn=fake_input,
+        print_fn=lambda *a: out.append(" ".join(map(str, a))),
+        speak_fn=speak_fn,
+    )
     return out, assistant
 
 
@@ -52,3 +57,19 @@ def test_brain_error_is_shown_and_loop_continues():
     out, _ = chat(["bad", "good", "/quit"], generate=flaky)
     assert "[error] Ollama is not running\n" in out
     assert "PARKER: fine\n" in out
+
+
+def test_replies_are_spoken_when_voice_is_on():
+    spoken = []
+    out, _ = chat(["Hello", "/reset", "/quit"], speak_fn=spoken.append)
+    assert spoken == ["echo: Hello"]  # only real replies, not command messages
+    assert "Voice is on." in out[0]
+
+
+def test_voice_failure_does_not_end_the_chat():
+    def broken_speaker(text):
+        raise RuntimeError("speakers unplugged")
+
+    out, a = chat(["one", "two", "/quit"], speak_fn=broken_speaker)
+    assert out.count("[voice error] speakers unplugged\n") == 2
+    assert len(a.history) == 4
