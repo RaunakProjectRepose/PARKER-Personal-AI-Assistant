@@ -2,6 +2,18 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## Unreleased – Milestone 4: opening apps
+
+### Added
+- "open …", "launch …", "start …" (typed or spoken) open apps from the Start Menu, built-in
+  Windows tools (Notepad, Calculator, File Explorer, Settings…), standard folders (Documents,
+  Downloads… including OneDrive-moved ones) and entries added with `/app add`.
+- Nicknames ("VS Code", "Chrome") and small transcription slips are understood; uninstallers and
+  help/docs shortcuts are never offered.
+- `/apps [search]`, `/apps refresh`, `/app add <name> = <path or URL>`, `/app remove <name>`.
+- Requests are recognised in code and opened like a double-click; an "open …" that matches
+  nothing goes to the model, which is told it can't open anything itself.
+
 ## Unreleased – Milestone 4: PARKER from any app
 
 ### Added

@@ -17,6 +17,7 @@ import time
 from datetime import date, datetime, timedelta
 
 from backend.agenda import Agenda, AgendaError, parse_event
+from backend.apps import AppError, AppLauncher, parse_open_request
 from backend.assistant import Assistant
 from backend.brain import MODEL, OWNER_NAME, BrainError
 from backend.greeting import build_greeting
@@ -38,6 +39,10 @@ HELP_TEXT = """Commands:
                        (day: today, tomorrow, friday, 2026-12-03 or 3/12)
   /events              list events for the next 7 days
   /cancel <id>         delete an event
+  open <app or folder> e.g. "open VS Code", "open my Downloads" (typed or spoken)
+  /apps [search]       list apps PARKER can open
+  /app add <name> = <path or web address>   teach PARKER a new one
+  /app remove <name>   forget one you added
   /reset               forget this conversation (saved memories stay)
   /quit                leave
 """
@@ -119,6 +124,64 @@ def handle_memory(message: str, memory: Memory | None, say, print_fn, input_fn) 
     return True
 
 
+def handle_apps(message: str, apps: AppLauncher | None, say, print_fn) -> bool:
+    """Handle "open X" requests and the /apps and /app commands. True if handled.
+
+    An "open X" request that matches nothing is NOT handled here, so it goes to
+    the model as a normal message (it may not have been about an app at all).
+    """
+    command, _, rest = message.partition(" ")
+    command = command.lower()
+    rest = rest.strip()
+    if command in ("/apps", "/app"):
+        if apps is None:
+            print_fn("PARKER: Opening apps isn't available right now.\n")
+            return True
+        sub, _, args = rest.partition(" ")
+        try:
+            if command == "/app" and sub.lower() == "add":
+                name, sep, target = args.partition("=")
+                if not sep:
+                    raise AppError("Usage: /app add <name> = <path or web address>")
+                entry = apps.add(name, target)
+                say(f"Got it. Say \"open {entry.name}\" whenever you need it.")
+            elif command == "/app" and sub.lower() == "remove":
+                if apps.remove(args):
+                    say(f"Removed {args.strip()}.")
+                else:
+                    print_fn(f"PARKER: You haven't added an app called '{args.strip()}'.\n")
+            elif command == "/apps":
+                if rest.lower() == "refresh":
+                    apps.refresh()
+                entries = apps.entries()
+                if rest and rest.lower() != "refresh":
+                    entries = [e for e in entries if rest.lower() in e.name.lower()]
+                names = sorted({e.name for e in entries}, key=str.lower)
+                if not names:
+                    print_fn(f"PARKER: Nothing matches '{rest}'.\n")
+                else:
+                    shown = ", ".join(names[:60]) + (f" … and {len(names) - 60} more" if len(names) > 60 else "")
+                    print_fn(f"PARKER: I can open: {shown}\n")
+            else:
+                print_fn("Usage: /app add <name> = <path>  ·  /app remove <name>  ·  /apps [search]\n")
+        except AppError as err:
+            print_fn(f"PARKER: {err}\n")
+        return True
+
+    spoken = parse_open_request(message)
+    if not spoken or apps is None:
+        return False
+    if apps.find(spoken) is None:
+        return False  # let the model answer; it may not have been about an app
+    try:
+        entry = apps.open(spoken)
+    except AppError as err:
+        print_fn(f"PARKER: {err}\n")
+        return True
+    say(f"Opening {entry.name}.")
+    return True
+
+
 def handle_agenda(message: str, agenda: Agenda | None, say, print_fn, today: date) -> bool:
     """Handle /plan, /plans, /done, /event, /events and /cancel. True if handled."""
     command, _, rest = message.partition(" ")
@@ -182,6 +245,7 @@ def run(
     listen_fn=None,
     now=datetime.now,
     timing_fn=None,
+    apps: AppLauncher | None = None,
 ) -> None:
     """Read messages, print (and optionally speak) PARKER's replies, until the user quits.
 
@@ -256,6 +320,8 @@ def run(
                 continue
             if handle_agenda(message, assistant.agenda, say, print_fn, now().date()):
                 continue
+            if handle_apps(message, apps, say, print_fn):
+                continue
         except (EOFError, KeyboardInterrupt):
             print_fn("\nPARKER: Goodbye.")
             return
@@ -324,6 +390,11 @@ def main(argv: list[str] | None = None) -> None:
         agenda = Agenda()
     except Exception as err:  # e.g. a locked or unreadable database file
         print(f"[memory error] {err}\nContinuing without saved memories or agenda.\n")
+    apps = None
+    try:
+        apps = AppLauncher()
+    except Exception as err:
+        print(f"[apps error] {err}\nContinuing without opening apps.\n")
 
     try:
         run(
@@ -331,9 +402,10 @@ def main(argv: list[str] | None = None) -> None:
             speak_fn=speak_fn,
             listen_fn=listen_fn,
             timing_fn=timing_fn,
+            apps=apps,
         )
     finally:
-        for store in (memory, agenda, speaker):
+        for store in (memory, agenda, apps, speaker):
             if store is not None:
                 store.close()
 

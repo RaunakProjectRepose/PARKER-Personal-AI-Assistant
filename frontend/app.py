@@ -75,7 +75,15 @@ from backend.agenda import Agenda, AgendaError, parse_time
 from backend.assistant import Assistant
 from backend.brain import MODEL, OWNER_NAME
 from backend.greeting import build_greeting, time_of_day
-from backend.main import HELP_TEXT, QUIT_COMMANDS, RESET_COMMAND, handle_agenda, handle_memory
+from backend.apps import AppLauncher
+from backend.main import (
+    HELP_TEXT,
+    QUIT_COMMANDS,
+    RESET_COMMAND,
+    handle_agenda,
+    handle_apps,
+    handle_memory,
+)
 from backend.memory import Memory, MemoryStoreError
 from frontend import autostart, theme
 from frontend.hotkey import (
@@ -469,9 +477,11 @@ class MainWindow(QMainWindow):
         make_hotkey=GlobalHotkey,
         settings: QSettings | None = None,
         start_hidden: bool = False,
+        apps: AppLauncher | None = None,
     ) -> None:
         super().__init__()
         self.assistant = assistant
+        self.apps = apps
         self.settings = settings or QSettings("PARKER", "PARKER")
         self.start_hidden = start_hidden
         self._quitting = False
@@ -916,6 +926,8 @@ class MainWindow(QMainWindow):
         if handle_agenda(text, self.assistant.agenda, self._say, self._print, self._now().date()):
             self.agenda_panel.refresh()
             return
+        if handle_apps(text, self.apps, self._say, self._print):
+            return
         if text.startswith("/"):
             self.chat.add("note", f"Unknown command {text.split()[0]}. Type /help for commands.")
             return
@@ -979,24 +991,29 @@ def main(argv: list[str] | None = None) -> int:
     app.setStyleSheet(theme.STYLESHEET)
     app.setFont(theme.font(theme.SANS, 10))
 
-    memory = agenda = None
+    memory = agenda = apps = None
     try:
         memory, agenda = Memory(), Agenda()
     except Exception as err:  # e.g. a locked database file
         QMessageBox.warning(None, "PARKER", f"Memory unavailable: {err}")
+    try:
+        apps = AppLauncher()
+    except Exception:  # opening apps is optional; PARKER works without it
+        apps = None
 
     window = MainWindow(
         Assistant(memory=memory, agenda=agenda),
         make_speaker=None if args.no_voice else default_speaker,
         make_listener=None if args.no_voice else default_listener,
         start_hidden=args.background,
+        apps=apps,
     )
     if window.tray is None:
         app.setQuitOnLastWindowClosed(True)  # no tray: closing really quits
     if not (args.background and window.tray is not None):
         window.show()
     code = app.exec()
-    for store in (memory, agenda):
+    for store in (memory, agenda, apps):
         if store is not None:
             store.close()
     return code

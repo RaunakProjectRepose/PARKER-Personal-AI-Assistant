@@ -67,6 +67,8 @@ chooses "Quit PARKER".
 | Greeting built in code, not by the model | It reads out real plans and events and can never invent one. |
 | Own agenda before Google Calendar | Works offline with no sign-in; calendar sync needs OAuth and belongs with M4 actions. |
 | PySide6 for the desktop app | Native Windows look and speed, mature, LGPL; the Python backend plugs in directly. |
+| Apps opened only from an allowlist (Start Menu, built-ins, folders, owner-added) | PARKER can't be talked into running arbitrary commands; it only does what a click could. |
+| "open …" recognised in code, unmatched requests go to the model | Reliable opening, and phrases like "open the pod bay doors" still get a normal answer. |
 | `RegisterHotKey` instead of a keyboard hook | Windows reports only the chosen combination, so PARKER never sees other keystrokes; no admin rights or extra dependency. |
 | Close to tray, quit from the tray menu | PARKER stays reachable from any app; quitting is still one click away. |
 | One background worker thread | The window never freezes, and jobs (think, listen, speak) never overlap. |
