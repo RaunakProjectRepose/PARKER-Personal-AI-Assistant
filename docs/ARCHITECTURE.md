@@ -25,7 +25,9 @@ speech_input.py ──text──► assistant.py ──messages──► brain.p
    each new message. A message whose reply failed is not remembered. Long-term facts come from
    `memory.Memory` (SQLite, `memory/parker.db`) and are added to the system prompt every turn.
    They are saved only when the owner says "remember that…" or uses `/remember`; those requests
-   are handled directly and never sent to the model.
+   are handled directly and never sent to the model. `agenda.Agenda` (same database) holds plans
+   for the next session and dated events; the current date and the next seven days of the agenda
+   are added to the system prompt too, and `greeting.py` builds the startup greeting from them.
 3. **Thinking** – `brain.generate_response()` sends the system prompt, history and new message
    to Ollama's `/api/chat` endpoint with thinking mode off, and returns the reply text.
 4. **Speaking** – `speech_output.Speaker` turns the reply into a WAV in memory with Piper,
@@ -43,6 +45,8 @@ speech_input.py ──text──► assistant.py ──messages──► brain.p
 | Memories saved only on request | Predictable and private; a small model would suggest wrong facts. |
 | Facts injected into the system prompt | Simple and reliable for tens of facts; search can come later if the list grows. |
 | `remember that…` handled in code, not by the model | Saving never depends on the model understanding the request. |
+| Greeting built in code, not by the model | It reads out real plans and events and can never invent one. |
+| Own agenda before Google Calendar | Works offline with no sign-in; calendar sync needs OAuth and belongs with M4 actions. |
 | Ten-turn history limit | Qwen is loaded with a 4096-token context window. |
 | Push-to-talk, no wake word yet | Simpler, reliable, and the recording state is always obvious. |
 | Whisper on CPU first | Works without extra NVIDIA libraries; a 3.5 s clip transcribes in ~1.1 s. |

@@ -13,9 +13,10 @@ class FakeBrain:
         self.calls = []
         self.fail = fail
 
-    def __call__(self, message, history, facts=None):
+    def __call__(self, message, history, facts=None, context=None):
         self.calls.append((message, history))
         self.facts = facts
+        self.context = context
         if self.fail:
             raise BrainError("offline")
         return f"reply {len(self.calls)}"
@@ -86,3 +87,29 @@ def test_no_memory_means_no_facts():
     fake = FakeBrain()
     Assistant(generate=fake).ask("Hello")
     assert fake.facts == []
+
+
+def test_context_includes_date_plans_and_events():
+    from datetime import date, datetime
+
+    from backend.agenda import Agenda
+
+    agenda = Agenda(":memory:")
+    agenda.add_plan("Start the desktop app")
+    agenda.add_event(date(2026, 11, 25), "18:00", "Gym")
+    agenda.add_event(date(2026, 12, 20), None, "Too far ahead")
+    fake = FakeBrain()
+    a = Assistant(generate=fake, agenda=agenda, now=lambda: datetime(2026, 11, 25, 19, 5))
+    a.ask("What's on today?")
+    assert "Current date and time: Wednesday 25 November 2026, 19:05." in fake.context
+    assert "Plans for this session: Start the desktop app" in fake.context
+    assert "Gym (today at 18:00)" in fake.context
+    assert "Too far ahead" not in fake.context
+
+
+def test_context_without_agenda_still_has_the_date():
+    from datetime import datetime
+
+    fake = FakeBrain()
+    Assistant(generate=fake, now=lambda: datetime(2026, 1, 1, 8, 0)).ask("Hi")
+    assert fake.context == "Current date and time: Thursday 1 January 2026, 08:00."

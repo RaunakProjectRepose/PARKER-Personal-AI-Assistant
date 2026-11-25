@@ -4,7 +4,7 @@ PARKER is a local-first, voice-powered personal AI assistant. It listens through
 thinks with a language model running on your own laptop, and answers out loud — no cloud APIs,
 no subscriptions, and nothing you say leaves the machine.
 
-## What works today (Milestone 1 – Voice Foundation)
+## What works today (Milestones 1–2)
 
 - **Talk or type** — push-to-talk speech recognition with Faster-Whisper, or plain typing.
 - **Local brain** — Qwen 3.5 4B through Ollama, running fully on the GPU (~0.9 s per reply).
@@ -12,6 +12,9 @@ no subscriptions, and nothing you say leaves the machine.
 - **Conversation memory** — remembers the last ten exchanges within a session; `/reset` clears it.
 - **Long-term memory** — say "remember that…" and PARKER keeps it across restarts, in a private
   SQLite file that never leaves your laptop. Nothing is saved unless you ask.
+- **Warm, motivating personality** — greets you by name with your plans for the session and
+  today's events, and keeps replies short enough to listen to.
+- **Agenda** — `/plan` tasks for next session and `/event` dates, stored locally.
 - **Honest by design** — tells you when it doesn't know something instead of guessing.
 - **Private** — recordings are kept in memory only and never written to disk.
 
@@ -56,6 +59,10 @@ In the chat:
 | `/edit <id> <fact>` | Change a memory |
 | `/forget <id>` | Delete one memory |
 | `/forget all` | Delete every memory (asks first) |
+| `/plan <task>` | Add a task for next session (read out at startup) |
+| `/plans`, `/done <id>` | List open plans, tick one off |
+| `/event <day> [HH:MM] <what>` | Add an event, e.g. `/event today 18:00 Gym` (day: `today`, `tomorrow`, `friday`, `2026-12-03` or `3/12`) |
+| `/events`, `/cancel <id>` | List the next 7 days, delete an event |
 | `/reset` | Forget the current conversation; saved memories stay |
 | `/help`, `/quit` | Show commands, leave (or Ctrl+C) |
 
@@ -92,6 +99,8 @@ backend/
   brain.py           # talks to the local model through Ollama
   assistant.py       # keeps the recent conversation
   memory.py          # long-term facts in SQLite
+  agenda.py          # plans and events (same database)
+  greeting.py        # startup greeting built from the agenda
   speech_input.py    # microphone recording + speech-to-text
   speech_output.py   # text-to-speech + playback
   main.py            # terminal chat that ties it together

@@ -21,13 +21,19 @@ import requests
 OLLAMA_URL = os.environ.get("PARKER_OLLAMA_URL", "http://localhost:11434")
 MODEL = os.environ.get("PARKER_MODEL", "qwen3.5:4b")
 TIMEOUT_SECONDS = 120  # The first request may need to load the model onto the GPU.
+OWNER_NAME = os.environ.get("PARKER_OWNER_NAME", "Raunak")
 
 SYSTEM_PROMPT = (
-    "You are PARKER, a calm, composed and thoughtful personal AI assistant. "
-    "You run locally on your owner's Windows laptop as part of a personal "
-    "project; the underlying language model is Qwen. "
-    "Speak in natural British English. Keep replies brief and conversational, "
-    "usually one to three sentences, because they may be read aloud. "
+    "You are PARKER, a warm, friendly and encouraging personal AI assistant. "
+    f"Your owner is {OWNER_NAME}. You run locally on their Windows laptop as part "
+    "of a personal project; the underlying language model is Qwen. "
+    f"Call them {OWNER_NAME} now and then, naturally, not in every reply. "
+    "Be genuinely supportive and motivating: notice their progress, encourage "
+    "them when something is hard, and help them take the next small step. Keep "
+    "it sincere, never over the top or flattering. "
+    "Speak in natural British English. Keep replies short to medium, usually "
+    "two to four sentences, because they are often read aloud; go longer only "
+    "if they explicitly ask for detail. "
     "Your owner may type to you or speak to you through a microphone, and "
     "your replies may be spoken aloud. When they speak, their words reach you "
     "as transcribed text, so treat it as hearing them; never claim you cannot "
@@ -46,16 +52,17 @@ SYSTEM_PROMPT = (
 )
 
 
-def system_prompt(facts: list[str] | None = None) -> str:
-    """The system prompt, with any saved memories about the owner added."""
+def system_prompt(facts: list[str] | None = None, context: str | None = None) -> str:
+    """The system prompt, with saved memories and current context (date, agenda) added."""
+    base = f"{SYSTEM_PROMPT}\n\n{context}" if context else SYSTEM_PROMPT
     if not facts:
-        return SYSTEM_PROMPT + (
+        return base + (
             " You have no saved memories about your owner yet. They can ask you "
             "to remember something by saying \"remember that...\"."
         )
     listed = "\n".join(f"- {fact}" for fact in facts)
     return (
-        f"{SYSTEM_PROMPT}\n\n"
+        f"{base}\n\n"
         "Saved memories: things your owner asked you to remember, in their own "
         "words, so \"I\" and \"my\" mean the owner:\n"
         f"{listed}\n"
@@ -72,11 +79,12 @@ def build_messages(
     user_message: str,
     history: list[dict] | None = None,
     facts: list[str] | None = None,
+    context: str | None = None,
 ) -> list[dict]:
     """Return the full message list: system prompt, earlier turns, new message."""
     if not user_message or not user_message.strip():
         raise ValueError("user_message must not be empty")
-    messages = [{"role": "system", "content": system_prompt(facts)}]
+    messages = [{"role": "system", "content": system_prompt(facts, context)}]
     messages.extend(history or [])
     messages.append({"role": "user", "content": user_message.strip()})
     return messages
@@ -87,6 +95,7 @@ def generate_response(
     history: list[dict] | None = None,
     *,
     facts: list[str] | None = None,
+    context: str | None = None,
     model: str = MODEL,
     base_url: str = OLLAMA_URL,
     timeout: float = TIMEOUT_SECONDS,
@@ -99,7 +108,7 @@ def generate_response(
     """
     payload = {
         "model": model,
-        "messages": build_messages(user_message, history, facts),
+        "messages": build_messages(user_message, history, facts, context),
         "stream": False,  # One complete reply; streaming comes later for voice.
         "think": False,  # Thinking mode took ~34 s per reply; off takes < 1 s.
     }

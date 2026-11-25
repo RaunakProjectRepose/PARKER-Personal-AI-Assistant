@@ -123,7 +123,7 @@ def memory_chat(lines, memory=None, speak_fn=None):
 
     out, sent = [], []
 
-    def brain(message, history, facts=None):
+    def brain(message, history, facts=None, context=None):
         sent.append((message, facts))
         return "ok"
 
@@ -206,3 +206,86 @@ def test_fact_first_remember_request_from_laptop_test():
     out, memory, sent = memory_chat(["My favorite color is blue, do remember that."])
     assert [f.text for f in memory.all()] == ["My favorite color is blue"]
     assert sent == []
+
+
+# ---- agenda and greeting ----------------------------------------------------
+
+def agenda_chat(lines, agenda=None, now=None, speak_fn=None):
+    from datetime import datetime
+
+    from backend.agenda import Agenda
+
+    agenda = agenda if agenda is not None else Agenda(":memory:")
+    now = now or (lambda: datetime(2026, 11, 25, 19, 0))
+    inputs = iter(lines)
+
+    def fake_input(_prompt):
+        try:
+            return next(inputs)
+        except StopIteration:
+            raise EOFError
+
+    out, sent = [], []
+
+    def brain(message, history, facts=None, context=None):
+        sent.append(message)
+        return "ok"
+
+    run(
+        Assistant(generate=brain, agenda=agenda, now=now),
+        input_fn=fake_input,
+        print_fn=lambda *a: out.append(" ".join(map(str, a))),
+        speak_fn=speak_fn,
+        now=now,
+    )
+    return out, agenda, sent
+
+
+def test_startup_greeting_is_printed_and_spoken():
+    from datetime import date
+
+    from backend.agenda import Agenda
+
+    agenda = Agenda(":memory:")
+    agenda.add_plan("start the desktop app")
+    agenda.add_event(date(2026, 11, 25), "18:00", "Gym")
+    agenda.add_event(date(2026, 11, 26), None, "Not today")
+    spoken = []
+    out, _, _ = agenda_chat([], agenda=agenda, speak_fn=spoken.append)
+    expected = (
+        "Good evening, Raunak. Planned for this session: start the desktop app. "
+        "Today: Gym at 18:00. Let's make it a good one."
+    )
+    assert spoken[0] == expected
+    assert f"PARKER: {expected}\n" in out
+
+
+def test_plan_done_and_list_commands():
+    out, agenda, sent = agenda_chat(["/plan Build the UI", "/plan Write docs", "/done 1", "/plans"])
+    assert [p.text for p in agenda.open_plans()] == ["Write docs"]
+    assert "PARKER: Open plans:\n  [2] Write docs\n" in out
+    assert sent == []
+
+
+def test_event_commands():
+    out, agenda, sent = agenda_chat(["/event today 18:00 Gym", "/event friday Hackathon", "/events", "/cancel 1"])
+    assert "PARKER: Added: Gym (today at 18:00).\n" in out
+    assert "PARKER: Coming up:\n  [1] Gym (today at 18:00)\n  [2] Hackathon (Fri 27 Nov)\n" in out
+    assert [e.text for e in agenda.events_between(agenda_today(), agenda_today().replace(day=30))] == ["Hackathon"]
+    assert sent == []
+
+
+def agenda_today():
+    from datetime import date
+
+    return date(2026, 11, 25)
+
+
+def test_bad_event_date_is_explained():
+    out, _, _ = agenda_chat(["/event someday Party"])
+    assert any("couldn't understand the date 'someday'" in line for line in out)
+
+
+def test_no_greeting_without_an_agenda():
+    out, _ = chat(["/quit"])
+    assert not any(line.startswith("PARKER: Good ") for line in out)

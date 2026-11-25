@@ -2,9 +2,15 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
-## Unreleased – Milestone 2: memory
+## 2026-11-25 – Milestone 2: personality, memory and agenda
 
 ### Added
+- Warm, friendly, motivating personality that calls the owner by name (`PARKER_OWNER_NAME`)
+  and keeps replies to two to four sentences.
+- Startup greeting by time of day with the plans for this session and today's events, spoken
+  aloud when voice is on. Built from the agenda in code, so it never invents anything.
+- Agenda (`backend/agenda.py`): `/plan`, `/plans`, `/done`, `/event`, `/events`, `/cancel`.
+- PARKER knows the current date and the next 7 days of the agenda when answering.
 - Long-term memory in SQLite (`backend/memory.py`): say or type "remember that…" to save a fact.
 - `/remember`, `/memories`, `/edit`, `/forget`, `/forget all` and `/help` commands.
 - Saved memories are added to PARKER's instructions, so it knows them in every session.

@@ -159,3 +159,14 @@ def test_facts_are_sent_to_ollama(post):
 def test_system_prompt_forbids_claiming_to_save_memories():
     # PARKER once replied "I have noted that" when nothing had been saved.
     assert "never say you have noted, saved or will remember" in brain.SYSTEM_PROMPT
+
+
+def test_personality_is_warm_short_and_uses_the_owners_name():
+    assert "warm, friendly and encouraging" in brain.SYSTEM_PROMPT
+    assert f"Call them {brain.OWNER_NAME}" in brain.SYSTEM_PROMPT
+    assert "two to four sentences" in brain.SYSTEM_PROMPT
+
+
+def test_context_is_added_to_the_system_prompt():
+    system = brain.build_messages("Hi", context="Current date and time: today.")[0]["content"]
+    assert "Current date and time: today." in system

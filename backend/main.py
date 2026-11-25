@@ -13,9 +13,12 @@ Type /help in the chat for the list of commands.
 from __future__ import annotations
 
 import argparse
+from datetime import date, datetime, timedelta
 
+from backend.agenda import Agenda, AgendaError, parse_event
 from backend.assistant import Assistant
-from backend.brain import MODEL, BrainError
+from backend.brain import MODEL, OWNER_NAME, BrainError
+from backend.greeting import build_greeting
 from backend.memory import Memory, MemoryStoreError, parse_remember_request
 
 QUIT_COMMANDS = {"/quit", "/exit", "quit", "exit"}
@@ -27,6 +30,13 @@ HELP_TEXT = """Commands:
   /edit <id> <fact>    change a saved memory
   /forget <id>         delete one memory
   /forget all          delete every memory (asks first)
+  /plan <task>         add a task for the next session (read out at startup)
+  /plans               list open plans
+  /done <id>           mark a plan as done
+  /event <day> [HH:MM] <what>   add an event, e.g. /event today 18:00 Gym
+                       (day: today, tomorrow, friday, 2026-12-03 or 3/12)
+  /events              list events for the next 7 days
+  /cancel <id>         delete an event
   /reset               forget this conversation (saved memories stay)
   /quit                leave
 """
@@ -108,12 +118,68 @@ def handle_memory(message: str, memory: Memory | None, say, print_fn, input_fn) 
     return True
 
 
+def handle_agenda(message: str, agenda: Agenda | None, say, print_fn, today: date) -> bool:
+    """Handle /plan, /plans, /done, /event, /events and /cancel. True if handled."""
+    command, _, rest = message.partition(" ")
+    command = command.lower()
+    rest = rest.strip()
+    if command not in {"/plan", "/plans", "/done", "/event", "/events", "/cancel"}:
+        return False
+    if agenda is None:
+        say("Sorry, my agenda isn't available right now.")
+        return True
+
+    try:
+        if command == "/plan":
+            if not rest:
+                print_fn("Usage: /plan <task>\n")
+            else:
+                plan = agenda.add_plan(rest)
+                say(f"Added to the plan for next session: {plan.text}")
+        elif command == "/plans":
+            plans = agenda.open_plans()
+            if not plans:
+                print_fn("PARKER: No open plans. Add one with /plan <task>.\n")
+            else:
+                lines = "\n".join(f"  [{p.id}] {p.text}" for p in plans)
+                print_fn(f"PARKER: Open plans:\n{lines}\n")
+        elif command == "/done":
+            if not rest.isdigit():
+                print_fn("Usage: /done <id>   (see /plans for ids)\n")
+            elif agenda.complete_plan(int(rest)):
+                say("Nicely done. That's ticked off.")
+            else:
+                print_fn(f"PARKER: There's no open plan with id {rest}.\n")
+        elif command == "/event":
+            day, time, text = parse_event(rest, today)
+            event = agenda.add_event(day, time, text)
+            say(f"Added: {event.describe(today)}.")
+        elif command == "/events":
+            events = agenda.events_between(today, today + timedelta(days=7))
+            if not events:
+                print_fn("PARKER: Nothing in the next 7 days.\n")
+            else:
+                lines = "\n".join(f"  [{e.id}] {e.describe(today)}" for e in events)
+                print_fn(f"PARKER: Coming up:\n{lines}\n")
+        elif command == "/cancel":
+            if not rest.isdigit():
+                print_fn("Usage: /cancel <id>   (see /events for ids)\n")
+            elif agenda.delete_event(int(rest)):
+                say("Event removed.")
+            else:
+                print_fn(f"PARKER: There's no event with id {rest}.\n")
+    except AgendaError as err:
+        print_fn(f"PARKER: {err}\n")
+    return True
+
+
 def run(
     assistant: Assistant | None = None,
     input_fn=input,
     print_fn=print,
     speak_fn=None,
     listen_fn=None,
+    now=datetime.now,
 ) -> None:
     """Read messages, print (and optionally speak) PARKER's replies, until the user quits.
 
@@ -145,6 +211,10 @@ def run(
         f"PARKER is online (model: {MODEL}).{note} "
         "Type /help for commands, /quit to leave.\n"
     )
+    agenda = assistant.agenda
+    if agenda is not None:
+        today = now().date()
+        say(build_greeting(OWNER_NAME, agenda.open_plans(), agenda.events_on(today), now()))
 
     while True:
         try:
@@ -180,6 +250,8 @@ def run(
             continue
         try:
             if handle_memory(message, assistant.memory, say, print_fn, input_fn):
+                continue
+            if handle_agenda(message, assistant.agenda, say, print_fn, now().date()):
                 continue
         except (EOFError, KeyboardInterrupt):
             print_fn("\nPARKER: Goodbye.")
@@ -225,17 +297,19 @@ def main(argv: list[str] | None = None) -> None:
         except SpeechInputError as err:
             print(f"[microphone error] {err}\nContinuing with typing only.\n")
 
-    memory = None
+    memory = agenda = None
     try:
         memory = Memory()
+        agenda = Agenda()
     except Exception as err:  # e.g. a locked or unreadable database file
-        print(f"[memory error] {err}\nContinuing without saved memories.\n")
+        print(f"[memory error] {err}\nContinuing without saved memories or agenda.\n")
 
     try:
-        run(Assistant(memory=memory), speak_fn=speak_fn, listen_fn=listen_fn)
+        run(Assistant(memory=memory, agenda=agenda), speak_fn=speak_fn, listen_fn=listen_fn)
     finally:
-        if memory is not None:
-            memory.close()
+        for store in (memory, agenda):
+            if store is not None:
+                store.close()
 
 
 if __name__ == "__main__":
