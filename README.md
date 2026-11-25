@@ -96,4 +96,8 @@ must never be committed to this repository; `.gitignore` excludes them.
 
 ## License
 
-To be determined. Note that the Piper TTS dependency is licensed GPL-3.0-or-later.
+PARKER is free software, licensed under the [GNU General Public License v3.0](LICENSE)
+(GPL-3.0-or-later). You may use, study, share and modify it; if you distribute a modified
+version, it must be released under the same licence. This matches PARKER's voice engine, Piper,
+which is also GPL-3.0. Third-party components and their licences are listed in
+[docs/CREDITS.md](docs/CREDITS.md).

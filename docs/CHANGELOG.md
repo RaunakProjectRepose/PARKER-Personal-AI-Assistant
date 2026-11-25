@@ -2,6 +2,11 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## 2026-11-25 – Licence
+
+### Added
+- GPL-3.0-or-later licence (`LICENSE`), matching the Piper TTS dependency.
+
 ## 2026-11-25 – Milestone 1 core: PARKER can listen, think and speak
 
 ### Added
