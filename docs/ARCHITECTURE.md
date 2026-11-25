@@ -35,6 +35,15 @@ speech_input.py ──text──► assistant.py ──messages──► brain.p
    the device never sleeps. A background thread plays each sentence while the next is generated.
    If the stream can't open, it falls back to whole-reply playback with `winsound`.
 
+## Desktop app
+
+`frontend/app.py` builds the window. Anything slow — Qwen, Whisper, Piper — runs in
+`frontend/worker.py` on a `QThread`, and the window talks to it only through Qt signals, so the
+window stays responsive. The worker handles one job at a time, in order. Typed and spoken
+messages go through the same command handlers as the terminal chat (`handle_memory`,
+`handle_agenda`), so both interfaces behave identically. Stopping is thread-safe: the window sets
+an event that ends a recording, or tells the audio stream to stop within a fraction of a second.
+
 ## Design decisions
 
 | Decision | Reason |
@@ -49,6 +58,9 @@ speech_input.py ──text──► assistant.py ──messages──► brain.p
 | `remember that…` handled in code, not by the model | Saving never depends on the model understanding the request. |
 | Greeting built in code, not by the model | It reads out real plans and events and can never invent one. |
 | Own agenda before Google Calendar | Works offline with no sign-in; calendar sync needs OAuth and belongs with M4 actions. |
+| PySide6 for the desktop app | Native Windows look and speed, mature, LGPL; the Python backend plugs in directly. |
+| One background worker thread | The window never freezes, and jobs (think, listen, speak) never overlap. |
+| Same command handlers for terminal and app | One behaviour to test; new commands work in both. |
 | Ten-turn history limit | Qwen is loaded with a 4096-token context window. |
 | Push-to-talk, no wake word yet | Simpler, reliable, and the recording state is always obvious. |
 | Whisper on CPU first | Works without extra NVIDIA libraries; a 3.5 s clip transcribes in ~1.1 s. |

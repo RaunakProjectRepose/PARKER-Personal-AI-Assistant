@@ -294,3 +294,54 @@ def test_stream_player_reports_playback_errors(monkeypatch):
     player = StreamPlayer(22050)
     with pytest.raises(SpeechError, match="device unplugged"):
         player.play([b"\x00\x00"] * 5)
+
+
+
+def test_stream_player_stops_early_when_asked(monkeypatch):
+    import sys
+    import threading
+    import types
+
+    import numpy as np
+
+    from backend.speech_output import StreamPlayer
+
+    written = []
+    player_box = {}
+
+    class SlowStream:
+        latency = 0.0
+
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def write(self, data):
+            written.append(len(data))
+            if len(written) == 3:
+                player_box["p"].stop()  # e.g. the Stop button pressed mid-sentence
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setitem(sys.modules, "sounddevice", types.SimpleNamespace(OutputStream=SlowStream))
+    player = StreamPlayer(22050)
+    player_box["p"] = player
+    long_sentence = np.zeros(2048 * 20, dtype=np.int16).tobytes()
+    player.play([long_sentence, long_sentence])
+    assert len(written) == 3  # stopped after the third slice, second sentence never played
+    player.play([np.zeros(10, dtype=np.int16).tobytes()])  # the next reply plays normally
+    assert len(written) == 4
+
+
+def test_speaker_stop_reaches_the_stream(voices_dir):
+    speaker, _, stream = stream_speaker(voices_dir)
+    stopped = []
+    stream.stop = lambda: stopped.append(True)
+    speaker.stop()
+    assert stopped == [True]

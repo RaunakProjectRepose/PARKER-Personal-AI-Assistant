@@ -4,7 +4,11 @@ PARKER is a local-first, voice-powered personal AI assistant. It listens through
 thinks with a language model running on your own laptop, and answers out loud — no cloud APIs,
 no subscriptions, and nothing you say leaves the machine.
 
-## What works today (Milestones 1–2)
+## What works today (Milestones 1–3)
+
+- **Desktop app** — a warm, golden window with a glowing status orb (listening, thinking,
+  speaking), a chat transcript, a Talk button, and panels to manage memories and the agenda.
+
 
 - **Talk or type** — push-to-talk speech recognition with Faster-Whisper, or plain typing.
 - **Local brain** — Qwen 3.5 4B through Ollama, running fully on the GPU (~0.9 s per reply).
@@ -41,6 +45,18 @@ python -m piper.download_voices en_GB-alba-medium --data-dir voices
 The speech-recognition model (~480 MB) downloads automatically the first time you use voice input.
 
 ## Usage
+
+The desktop app:
+
+```powershell
+python -m frontend.app              # voice and microphone on
+python -m frontend.app --no-voice   # text only
+```
+
+Shortcuts: **Ctrl+Space** talk (press again when you've finished), **Esc** stop speaking,
+**Enter** send. Every chat command below also works in the app's message box.
+
+The terminal version is still available:
 
 ```powershell
 python -m backend.main            # type to PARKER, read the replies
@@ -108,6 +124,11 @@ backend/
   speech_input.py    # microphone recording + speech-to-text
   speech_output.py   # text-to-speech + playback
   main.py            # terminal chat that ties it together
+frontend/
+  app.py             # desktop window: chat, controls, memories and agenda panels
+  worker.py          # runs the model, microphone and voice off the window thread
+  orb.py             # the animated status orb
+  theme.py           # the golden colour palette and styles
 tests/               # one test file per module
 docs/                # architecture, roadmap, changelog, credits
 voices/              # downloaded voice files (ignored by Git)

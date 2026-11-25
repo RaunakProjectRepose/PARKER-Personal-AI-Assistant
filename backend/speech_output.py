@@ -82,6 +82,7 @@ class StreamPlayer:
         except (ImportError, OSError) as exc:
             raise SpeechError(f"Streaming audio is unavailable: {exc}") from exc
         self._np = np
+        self._stop = threading.Event()
         try:
             # "high" latency = bigger buffers: smoother on Bluetooth and busy CPUs.
             self._stream = sd.OutputStream(
@@ -91,8 +92,12 @@ class StreamPlayer:
         except Exception as exc:
             raise SpeechError(f"Could not open the speakers: {exc}") from exc
 
+    # Audio is written in small slices so a stop request takes effect quickly.
+    SLICE_SAMPLES = 2048
+
     def play(self, chunks: Iterable[bytes]) -> None:
-        """Play the chunks in order; returns when the audio has finished."""
+        """Play the chunks in order; returns when the audio has finished or was stopped."""
+        self._stop.clear()
         pending: queue.Queue = queue.Queue(maxsize=16)
         errors: list[Exception] = []
 
@@ -101,10 +106,14 @@ class StreamPlayer:
                 data = pending.get()
                 if data is None:
                     return
-                if errors:
-                    continue  # Drain the queue after a failure.
+                if errors or self._stop.is_set():
+                    continue  # Drain the queue after a failure or a stop.
+                samples = self._np.frombuffer(data, dtype=self._np.int16)
                 try:
-                    self._stream.write(self._np.frombuffer(data, dtype=self._np.int16))
+                    for start in range(0, len(samples), self.SLICE_SAMPLES):
+                        if self._stop.is_set():
+                            break
+                        self._stream.write(samples[start : start + self.SLICE_SAMPLES])
                 except Exception as exc:
                     errors.append(exc)
 
@@ -112,13 +121,20 @@ class StreamPlayer:
         thread.start()
         try:
             for chunk in chunks:  # Generating the next sentence overlaps with playback.
+                if self._stop.is_set():
+                    break
                 pending.put(chunk)
         finally:
             pending.put(None)
             thread.join()
         if errors:
             raise SpeechError(f"Audio playback failed: {errors[0]}")
-        time.sleep(self._stream.latency)  # Let the last buffered audio reach the speakers.
+        if not self._stop.is_set():
+            time.sleep(self._stream.latency)  # Let the last buffered audio reach the speakers.
+
+    def stop(self) -> None:
+        """Stop the current reply within a fraction of a second. Safe from any thread."""
+        self._stop.set()
 
     def close(self) -> None:
         self._stream.stop()
@@ -260,6 +276,11 @@ class Speaker:
             wav = self.synthesize(text)
             self.last_first_audio_s = time.monotonic() - start
             self._play(wav)
+
+    def stop(self) -> None:
+        """Stop speaking (stream playback only). Safe to call from another thread."""
+        if self._stream is not None and hasattr(self._stream, "stop"):
+            self._stream.stop()
 
     def close(self) -> None:
         if self._stream is not None and hasattr(self._stream, "close"):

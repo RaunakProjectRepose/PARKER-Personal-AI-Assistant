@@ -21,3 +21,8 @@ Voice files are downloaded locally into `voices/` and are not stored in this rep
 [Faster-Whisper](https://github.com/SYSTRAN/faster-whisper) (MIT) running OpenAI's
 [Whisper](https://github.com/openai/whisper) `small.en` model (MIT), entirely on this laptop.
 Microphone access via [python-sounddevice](https://github.com/spatialaudio/python-sounddevice) (MIT).
+
+## Desktop app
+
+[Qt for Python (PySide6)](https://doc.qt.io/qtforpython-6/), licensed LGPL-3.0, used unmodified
+as an installed library.

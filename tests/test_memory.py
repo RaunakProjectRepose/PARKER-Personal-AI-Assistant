@@ -125,3 +125,22 @@ def test_remember_requests_are_understood(message, fact):
 )
 def test_other_messages_are_not_remember_requests(message):
     assert parse_remember_request(message) is None
+
+
+
+def test_memory_is_safe_to_use_from_several_threads(tmp_path):
+    import threading
+
+    m = Memory(tmp_path / "parker.db")
+
+    def add_many(prefix):
+        for i in range(25):
+            m.add(f"{prefix} fact {i}")
+
+    threads = [threading.Thread(target=add_many, args=(p,)) for p in "abcd"]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(m.all()) == 100
+    m.close()

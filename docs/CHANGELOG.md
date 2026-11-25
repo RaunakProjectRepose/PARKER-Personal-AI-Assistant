@@ -2,6 +2,26 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## Unreleased – Milestone 3: desktop app
+
+### Added
+- PySide6 desktop app (`python -m frontend.app`) in a warm "heavenly gold" theme.
+- Animated status orb: breathes when ready, rings when listening, a circling arc when thinking,
+  pulses when speaking.
+- Chat transcript with message bubbles; Talk button and Ctrl+Space for push-to-talk; Stop button
+  and Esc to stop speaking mid-sentence; "Speak replies" toggle.
+- Agenda panel (plans with tick-to-complete, next 7 days of events, add/remove) and Memories
+  panel (add/forget).
+- Spoken greeting on startup, and every chat command works in the message box.
+- Model, microphone and voice run on a background thread so the window never freezes.
+
+### Changed
+- Memory and agenda stores are thread-safe (shared connection with a lock).
+- Speech can be stopped mid-reply.
+
+### Fixed
+- An invalid event time such as "25:99" is now rejected instead of becoming part of the title.
+
 ## 2026-11-25 – Smoother voice
 
 ### Changed

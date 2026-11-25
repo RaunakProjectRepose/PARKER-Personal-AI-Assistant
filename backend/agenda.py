@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -37,16 +38,19 @@ class Event:
     time: str | None  # "HH:MM" or None for all-day
     text: str
 
-    def describe(self, today: date | None = None) -> str:
+    def when(self, today: date | None = None) -> str:
+        """'today at 18:00', 'tomorrow', 'Sat 28 Nov at 10:00'."""
         today = today or date.today()
         if self.day == today:
-            when = "today"
+            day = "today"
         elif self.day == today + timedelta(days=1):
-            when = "tomorrow"
+            day = "tomorrow"
         else:
-            when = f"{self.day:%a} {self.day.day} {self.day:%b}"
-        at = f" at {self.time}" if self.time else ""
-        return f"{self.text} ({when}{at})"
+            day = f"{self.day:%a} {self.day.day} {self.day:%b}"
+        return f"{day} at {self.time}" if self.time else day
+
+    def describe(self, today: date | None = None) -> str:
+        return f"{self.text} ({self.when(today)})"
 
 
 def parse_day(word: str, today: date | None = None) -> date:
@@ -80,6 +84,17 @@ def parse_day(word: str, today: date | None = None) -> date:
     )
 
 
+def parse_time(text: str) -> str | None:
+    """'18:00', '9.30' -> 'HH:MM'; '' -> None (all day). Raises AgendaError if invalid."""
+    text = text.strip()
+    if not text:
+        return None
+    m = _TIME.match(text)
+    if not m:
+        raise AgendaError(f"'{text}' isn't a valid time. Use HH:MM, e.g. 18:00.")
+    return f"{int(m[1]):02d}:{m[2]}"
+
+
 def parse_event(args: str, today: date | None = None) -> tuple[date, str | None, str]:
     """Split '/event' arguments: '<day> [HH:MM] <text>'."""
     parts = args.split(maxsplit=2)
@@ -109,7 +124,10 @@ class Agenda:
     def __init__(self, path: Path | str = DB_PATH) -> None:
         if str(path) != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(str(path))
+        # The desktop app uses PARKER from a background thread as well as the
+        # window, so one connection is shared and guarded by a lock.
+        self._db = sqlite3.connect(str(path), check_same_thread=False)
+        self._lock = threading.RLock()
         self._db.executescript(
             """CREATE TABLE IF NOT EXISTS plans (
                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,51 +146,59 @@ class Agenda:
 
     # ---- plans ------------------------------------------------------------
     def add_plan(self, text: str) -> Plan:
-        text = _clean(text)
-        now = datetime.now().isoformat(timespec="seconds")
-        cur = self._db.execute("INSERT INTO plans (text, created_at) VALUES (?, ?)", (text, now))
-        self._db.commit()
-        return Plan(cur.lastrowid, text)
+        with self._lock:
+            text = _clean(text)
+            now = datetime.now().isoformat(timespec="seconds")
+            cur = self._db.execute("INSERT INTO plans (text, created_at) VALUES (?, ?)", (text, now))
+            self._db.commit()
+            return Plan(cur.lastrowid, text)
 
     def open_plans(self) -> list[Plan]:
-        rows = self._db.execute(
-            "SELECT id, text FROM plans WHERE done_at IS NULL ORDER BY id"
-        ).fetchall()
-        return [Plan(*r) for r in rows]
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, text FROM plans WHERE done_at IS NULL ORDER BY id"
+            ).fetchall()
+            return [Plan(*r) for r in rows]
 
     def complete_plan(self, plan_id: int) -> bool:
-        now = datetime.now().isoformat(timespec="seconds")
-        cur = self._db.execute(
-            "UPDATE plans SET done_at = ? WHERE id = ? AND done_at IS NULL", (now, plan_id)
-        )
-        self._db.commit()
-        return cur.rowcount == 1
+        with self._lock:
+            now = datetime.now().isoformat(timespec="seconds")
+            cur = self._db.execute(
+                "UPDATE plans SET done_at = ? WHERE id = ? AND done_at IS NULL", (now, plan_id)
+            )
+            self._db.commit()
+            return cur.rowcount == 1
 
     # ---- events -----------------------------------------------------------
     def add_event(self, day: date, time: str | None, text: str) -> Event:
-        text = _clean(text)
-        cur = self._db.execute(
-            "INSERT INTO events (day, time, text) VALUES (?, ?, ?)", (day.isoformat(), time, text)
-        )
-        self._db.commit()
-        return Event(cur.lastrowid, day, time, text)
+        with self._lock:
+            text = _clean(text)
+            cur = self._db.execute(
+                "INSERT INTO events (day, time, text) VALUES (?, ?, ?)", (day.isoformat(), time, text)
+            )
+            self._db.commit()
+            return Event(cur.lastrowid, day, time, text)
 
     def events_between(self, start: date, end: date) -> list[Event]:
         """Events from `start` to `end` inclusive, in date and time order."""
-        rows = self._db.execute(
-            "SELECT id, day, time, text FROM events WHERE day BETWEEN ? AND ? "
-            "ORDER BY day, time IS NOT NULL, time, id",
-            (start.isoformat(), end.isoformat()),
-        ).fetchall()
-        return [Event(r[0], date.fromisoformat(r[1]), r[2], r[3]) for r in rows]
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, day, time, text FROM events WHERE day BETWEEN ? AND ? "
+                "ORDER BY day, time IS NOT NULL, time, id",
+                (start.isoformat(), end.isoformat()),
+            ).fetchall()
+            return [Event(r[0], date.fromisoformat(r[1]), r[2], r[3]) for r in rows]
 
     def events_on(self, day: date) -> list[Event]:
-        return self.events_between(day, day)
+        with self._lock:
+            return self.events_between(day, day)
 
     def delete_event(self, event_id: int) -> bool:
-        cur = self._db.execute("DELETE FROM events WHERE id = ?", (event_id,))
-        self._db.commit()
-        return cur.rowcount == 1
+        with self._lock:
+            cur = self._db.execute("DELETE FROM events WHERE id = ?", (event_id,))
+            self._db.commit()
+            return cur.rowcount == 1
 
     def close(self) -> None:
-        self._db.close()
+        with self._lock:
+            self._db.close()

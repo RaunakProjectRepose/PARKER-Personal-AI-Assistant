@@ -119,3 +119,19 @@ def test_event_description():
     assert Event(1, WED, "18:00", "Gym").describe(WED) == "Gym (today at 18:00)"
     assert Event(1, date(2026, 11, 26), None, "Exam").describe(WED) == "Exam (tomorrow)"
     assert Event(1, date(2026, 11, 30), None, "Trip").describe(WED) == "Trip (Mon 30 Nov)"
+
+
+
+@pytest.mark.parametrize("text, expected", [("18:00", "18:00"), ("9.30", "09:30"), ("", None), ("  ", None)])
+def test_parse_time(text, expected):
+    from backend.agenda import parse_time
+
+    assert parse_time(text) == expected
+
+
+@pytest.mark.parametrize("bad", ["25:99", "6pm", "18"])
+def test_bad_times_are_rejected(bad):
+    from backend.agenda import parse_time
+
+    with pytest.raises(AgendaError, match="valid time"):
+        parse_time(bad)
