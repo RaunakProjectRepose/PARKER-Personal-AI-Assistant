@@ -131,3 +131,9 @@ def test_empty_reply(post):
     post.return_value = fake_response(json_data={"message": {"content": "   "}})
     with pytest.raises(brain.BrainError, match="empty reply"):
         brain.generate_response("Hello")
+
+
+def test_system_prompt_knows_parker_can_hear_and_speak():
+    # With --voice on, PARKER once said "I certainly can't hear you".
+    assert "never claim you cannot hear them" in brain.SYSTEM_PROMPT
+    assert "spoken aloud" in brain.SYSTEM_PROMPT
