@@ -249,14 +249,52 @@ def test_threaded_listening_stops_when_talk_is_pressed_again(app):
             time.sleep(0.01)
         return condition()
 
+    errors = []
+    original_add = window.chat.add
+
+    def checked_add(*args, **kwargs):
+        # Catch the bug that froze the app: bubbles built on the worker thread.
+        try:
+            original_add(*args, **kwargs)
+        except RuntimeError as err:
+            errors.append(str(err))
+
+    window.chat.add = checked_add
+
     try:
         assert wait_until(lambda: window.mic_ready and window.state == "idle")
+        assert wait_until(lambda: window.chat.messages and window.chat.messages[0][0] == "parker")
         window.toggle_listening()
         assert wait_until(lambda: window.state == "listening")
         assert window.talk_button.text() == "Done"
         window.toggle_listening()  # click again: stop recording
         assert wait_until(lambda: sent == ["Hello from the microphone"])
         assert wait_until(lambda: ("parker", "Hi!") in window.chat.messages)
+        assert errors == []
     finally:
         window.close()
     assert threading.active_count() >= 1
+
+
+def test_chat_refuses_widgets_from_a_background_thread(app):
+    window, _, _ = make_window(app)
+    failures = []
+
+    def from_thread():
+        try:
+            window.chat.add("parker", "from the wrong thread")
+        except RuntimeError as err:
+            failures.append(str(err))
+
+    t = threading.Thread(target=from_thread)
+    t.start()
+    t.join()
+    assert failures == ["ChatView.add called from a background thread"]
+
+
+def test_recording_time_limit_stops_listening_directly(app):
+    window, _, _ = make_window(app)
+    stopped = []
+    window.worker.stop_listening = lambda: stopped.append(True)
+    window._recording_limit.timeout.emit()
+    assert stopped == [True]

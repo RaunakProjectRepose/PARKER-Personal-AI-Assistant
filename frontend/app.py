@@ -14,7 +14,7 @@ import argparse
 import sys
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import QDate, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QDate, Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -74,7 +74,9 @@ class ChatView(QScrollArea):
         )
 
     def add(self, kind: str, text: str, meta: str = "") -> None:
-        """kind: 'user', 'parker', 'note' or 'error'."""
+        """kind: 'user', 'parker', 'note' or 'error'. Must run on the window thread."""
+        if QThread.currentThread() is not self.thread():
+            raise RuntimeError("ChatView.add called from a background thread")
         self.messages.append((kind, text))
         row = QHBoxLayout()
         if kind in ("note", "error"):
@@ -423,19 +425,28 @@ class MainWindow(QMainWindow):
         self.say_requested.connect(self.worker.say)
         self.listen_requested.connect(self.worker.listen)
         self.load_requested.connect(self.worker.load)
-        self.worker.status_changed.connect(self.set_state)
-        self.worker.loaded.connect(self._loaded)
-        self.worker.heard.connect(self._heard)
-        self.worker.replied.connect(lambda text: self.chat.add("parker", text))
-        self.worker.failed.connect(lambda text: self.chat.add("error", text))
+        # Everything the worker reports must run on the window's thread: Qt
+        # widgets may only be created and changed there. QueuedConnection plus
+        # slots on this window (not lambdas) guarantees that.
+        queued = (
+            Qt.ConnectionType.QueuedConnection if threaded else Qt.ConnectionType.DirectConnection
+        )
+        self.worker.status_changed.connect(self.set_state, queued)
+        self.worker.loaded.connect(self._loaded, queued)
+        self.worker.heard.connect(self._heard, queued)
+        self.worker.replied.connect(self._replied, queued)
+        self.worker.failed.connect(self._failed, queued)
         self._recording_limit = QTimer(self)
         self._recording_limit.setSingleShot(True)
-        self._recording_limit.timeout.connect(self.worker.stop_listening)
+        # stop_listening is thread-safe, so call it directly from this thread; a
+        # queued call would wait behind the recording it is meant to stop.
+        self._recording_limit.timeout.connect(self._stop_listening_now)
 
         self.set_state("loading")
         self.load_requested.emit()
 
     # ---- state ---------------------------------------------------------------
+    @Slot(str)
     def set_state(self, state: str) -> None:
         self.state = state
         self.orb.set_state(state)
@@ -450,6 +461,7 @@ class MainWindow(QMainWindow):
         if not listening:
             self._recording_limit.stop()
 
+    @Slot(bool, bool, str)
     def _loaded(self, voice_ok: bool, mic_ok: bool, notes: str) -> None:
         self.voice_ready, self.mic_ready = voice_ok, mic_ok
         self.voice_toggle.setEnabled(voice_ok)
@@ -497,6 +509,19 @@ class MainWindow(QMainWindow):
         if not on:
             self.worker.stop_speaking()
 
+    @Slot(str)
+    def _replied(self, text: str) -> None:
+        self.chat.add("parker", text)
+
+    @Slot(str)
+    def _failed(self, text: str) -> None:
+        self.chat.add("error", text)
+
+    @Slot()
+    def _stop_listening_now(self) -> None:
+        self.worker.stop_listening()
+
+    @Slot(str)
     def _heard(self, text: str) -> None:
         if not text:
             self.chat.add("note", "Sorry, I didn't catch that.")

@@ -21,6 +21,11 @@ All notable changes to PARKER. Dates are when the change reached `main`.
 
 ### Fixed
 - An invalid event time such as "25:99" is now rejected instead of becoming part of the title.
+- The app froze ("Not Responding") and opened a blank extra window: replies and the greeting were
+  built on the background thread. All worker signals are now queued onto window slots, and the
+  chat refuses to build bubbles off the window thread.
+- The 30-second recording limit never fired, because its stop request queued behind the
+  recording itself.
 
 ## 2026-11-25 – Smoother voice
 
