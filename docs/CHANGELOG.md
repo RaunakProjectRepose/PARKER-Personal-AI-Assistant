@@ -2,6 +2,24 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## Unreleased – Smoother voice
+
+### Changed
+- Speech now plays through one always-open audio stream (`sounddevice`) instead of a new
+  `winsound` playback per reply: the device stays awake, so the lead-in drops from 1 s to 0.2 s.
+- Piper speaks sentence by sentence and the first sentence plays while the rest is generated.
+- Larger audio buffers to stop choppy playback on Bluetooth and busy CPUs.
+
+### Added
+- `PARKER_VOICE_SPEED` and `PARKER_VOICE_VARIATION` to tune pace and rhythm, and
+  `python -m backend.speech_output --compare` to pick by ear.
+- `--timing` shows thinking and speaking times per reply.
+- `PARKER_AUDIO=winsound` to fall back to the old playback; used automatically if the stream
+  can't open.
+
+### Fixed
+- PARKER referred to "what we said earlier" about things never discussed.
+
 ## 2026-11-25 – Milestone 2: personality, memory and agenda
 
 ### Added

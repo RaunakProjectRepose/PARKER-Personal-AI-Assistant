@@ -2,6 +2,7 @@
 
 import io
 import wave
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,17 +12,38 @@ VOICE = "en_GB-test-medium"
 
 
 class FakeVoice:
-    """Writes 0.1 s of silence per call, like Piper's synthesize_wav()."""
+    """Mimics Piper: whole-WAV synthesis and sentence-by-sentence chunks."""
 
     def __init__(self):
         self.texts = []
+        self.configs = []
+        self.config = SimpleNamespace(sample_rate=22050, length_scale=1.0)
 
-    def synthesize_wav(self, text, wav_file):
+    def synthesize_wav(self, text, wav_file, syn_config=None):
         self.texts.append(text)
+        self.configs.append(syn_config)
         wav_file.setnchannels(1)
         wav_file.setsampwidth(2)
         wav_file.setframerate(22050)
         wav_file.writeframes(b"\x00\x00" * 2205)
+
+    def synthesize(self, text, syn_config=None):
+        self.texts.append(text)
+        self.configs.append(syn_config)
+        for sentence in text.split(". "):
+            yield SimpleNamespace(audio_int16_bytes=sentence.encode())
+
+
+class FakeStream:
+    def __init__(self):
+        self.played = []
+        self.closed = False
+
+    def play(self, chunks):
+        self.played.append(list(chunks))
+
+    def close(self):
+        self.closed = True
 
 
 @pytest.fixture
@@ -99,3 +121,148 @@ def test_lead_in_silence_is_added_before_speech(voices_dir):
 def test_negative_lead_in_is_rejected(voices_dir):
     with pytest.raises(ValueError):
         make_speaker(voices_dir, lead_in=-1)
+
+
+# ---- streaming playback ------------------------------------------------------
+
+def stream_speaker(voices_dir, **kwargs):
+    voice, stream = FakeVoice(), FakeStream()
+    speaker = Speaker(
+        VOICE, voices_dir, load_voice=lambda p: voice, stream_player=stream, audio="stream", **kwargs
+    )
+    return speaker, voice, stream
+
+
+def test_stream_mode_plays_sentence_by_sentence_after_a_short_lead_in(voices_dir):
+    speaker, voice, stream = stream_speaker(voices_dir)
+    speaker.speak("First sentence. Second one")
+    chunks = stream.played[0]
+    assert speaker.mode == "stream"
+    assert speaker.lead_in_seconds == 0.2  # default for the always-open stream
+    assert chunks[0] == b"\x00\x00" * int(22050 * 0.2)
+    assert chunks[1:] == [b"First sentence", b"Second one"]
+    assert speaker.last_first_audio_s is not None
+
+
+def test_stream_mode_without_lead_in(voices_dir):
+    speaker, _, stream = stream_speaker(voices_dir, lead_in_seconds=0)
+    speaker.speak("Hi")
+    assert stream.played[0] == [b"Hi"]
+
+
+def test_stream_is_opened_with_the_voice_sample_rate_and_closed(voices_dir):
+    opened = []
+
+    def open_stream(rate):
+        opened.append(rate)
+        return FakeStream()
+
+    speaker = Speaker(VOICE, voices_dir, load_voice=lambda p: FakeVoice(), open_stream=open_stream, audio="stream")
+    assert opened == [22050]
+    speaker.close()
+    assert speaker._stream.closed
+
+
+def test_falls_back_to_whole_reply_playback_if_the_stream_fails(voices_dir):
+    def broken(rate):
+        raise SpeechError("PortAudio library not found")
+
+    speaker = Speaker(VOICE, voices_dir, load_voice=lambda p: FakeVoice(), open_stream=broken, audio="stream")
+    assert speaker.mode == "winsound"
+    assert speaker.lead_in_seconds == 1.0
+    assert "PortAudio library not found" in speaker.fallback_note
+
+
+def test_winsound_mode_can_be_chosen(voices_dir):
+    played = []
+    speaker = Speaker(VOICE, voices_dir, load_voice=lambda p: FakeVoice(), play=played.append, audio="winsound")
+    speaker.speak("Hello.")
+    assert speaker.mode == "winsound" and played[0][:4] == b"RIFF"
+
+
+# ---- speed and rhythm --------------------------------------------------------
+
+def test_default_settings_leave_the_voice_untouched(voices_dir):
+    speaker, voice, _ = stream_speaker(voices_dir)
+    speaker.speak("Hi")
+    assert voice.configs == [None]
+
+
+def test_speed_and_variation_reach_piper(voices_dir):
+    made = []
+
+    def make_config(length_scale, noise_w_scale):
+        made.append((length_scale, noise_w_scale))
+        return "CONFIG"
+
+    speaker, voice, _ = stream_speaker(voices_dir, speed=0.8, variation=0.7, make_config=make_config)
+    speaker.speak("Hi")
+    assert made == [(1.25, 0.7)]  # slower speed = longer length_scale
+    assert voice.configs == ["CONFIG"]
+
+
+def test_speed_must_be_positive(voices_dir):
+    with pytest.raises(ValueError):
+        stream_speaker(voices_dir, speed=0)
+
+
+def test_stream_player_writes_every_chunk_in_order(monkeypatch):
+    """Exercise the real StreamPlayer threading with a fake sound card."""
+    import sys
+    import types
+
+    import numpy as np
+
+    from backend.speech_output import StreamPlayer
+
+    written = []
+
+    class FakeOutputStream:
+        latency = 0.0
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def start(self):
+            pass
+
+        def write(self, data):
+            written.append(data.tobytes())
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setitem(sys.modules, "sounddevice", types.SimpleNamespace(OutputStream=FakeOutputStream))
+    player = StreamPlayer(22050)
+    assert player._stream.kwargs == {"samplerate": 22050, "channels": 1, "dtype": "int16", "latency": "high"}
+    chunks = [np.array([i, i], dtype=np.int16).tobytes() for i in range(40)]
+    player.play(iter(chunks))
+    assert written == chunks
+    player.close()
+
+
+def test_stream_player_reports_playback_errors(monkeypatch):
+    import sys
+    import types
+
+    from backend.speech_output import StreamPlayer
+
+    class BrokenStream:
+        latency = 0.0
+
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def write(self, data):
+            raise RuntimeError("device unplugged")
+
+    monkeypatch.setitem(sys.modules, "sounddevice", types.SimpleNamespace(OutputStream=BrokenStream))
+    player = StreamPlayer(22050)
+    with pytest.raises(SpeechError, match="device unplugged"):
+        player.play([b"\x00\x00"] * 5)

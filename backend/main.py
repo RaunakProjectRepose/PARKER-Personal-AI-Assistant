@@ -13,6 +13,7 @@ Type /help in the chat for the list of commands.
 from __future__ import annotations
 
 import argparse
+import time
 from datetime import date, datetime, timedelta
 
 from backend.agenda import Agenda, AgendaError, parse_event
@@ -180,12 +181,14 @@ def run(
     speak_fn=None,
     listen_fn=None,
     now=datetime.now,
+    timing_fn=None,
 ) -> None:
     """Read messages, print (and optionally speak) PARKER's replies, until the user quits.
 
     `speak_fn`, if given, is called with each reply's text and should say it aloud.
     `listen_fn`, if given, is called when the user presses Enter on an empty
     line; it records speech and returns it as text.
+    `timing_fn`, if given, is called with how long thinking and speaking took.
     """
     assistant = assistant or Assistant()
 
@@ -261,12 +264,16 @@ def run(
             print_fn(f"Unknown command {message.split()[0]}. Type /help for commands.\n")
             continue
 
+        started = time.monotonic()
         try:
             reply = assistant.ask(message)
         except BrainError as err:
             print_fn(f"[error] {err}\n")
             continue
+        thought = time.monotonic() - started
         say(reply)
+        if timing_fn:
+            timing_fn(thought, time.monotonic() - started - thought)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -274,18 +281,32 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--speak", action="store_true", help="speak PARKER's replies aloud")
     parser.add_argument("--listen", action="store_true", help="talk to PARKER with your microphone")
     parser.add_argument("--voice", action="store_true", help="same as --speak --listen")
+    parser.add_argument("--timing", action="store_true", help="show how long each step takes")
     args = parser.parse_args(argv)
     if args.voice:
         args.speak = args.listen = True
 
-    speak_fn = None
+    speak_fn = speaker = None
     if args.speak:
         from backend.speech_output import Speaker, SpeechError
 
         try:
-            speak_fn = Speaker().speak
+            speaker = Speaker()
+            speak_fn = speaker.speak
+            if speaker.fallback_note:
+                print(f"[voice] {speaker.fallback_note}")
         except SpeechError as err:
             print(f"[voice error] {err}\nContinuing with text only.\n")
+
+    timing_fn = None
+    if args.timing:
+
+        def timing_fn(thought: float, spoke: float) -> None:
+            parts = [f"thinking {thought:.1f} s"]
+            if speaker is not None and speaker.last_first_audio_s is not None:
+                parts.append(f"voice ready {speaker.last_first_audio_s:.1f} s")
+                parts.append(f"speaking {spoke:.1f} s")
+            print(f"[timing] {' · '.join(parts)}\n")
 
     listen_fn = None
     if args.listen:
@@ -305,9 +326,14 @@ def main(argv: list[str] | None = None) -> None:
         print(f"[memory error] {err}\nContinuing without saved memories or agenda.\n")
 
     try:
-        run(Assistant(memory=memory, agenda=agenda), speak_fn=speak_fn, listen_fn=listen_fn)
+        run(
+            Assistant(memory=memory, agenda=agenda),
+            speak_fn=speak_fn,
+            listen_fn=listen_fn,
+            timing_fn=timing_fn,
+        )
     finally:
-        for store in (memory, agenda):
+        for store in (memory, agenda, speaker):
             if store is not None:
                 store.close()
 

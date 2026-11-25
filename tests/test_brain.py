@@ -170,3 +170,9 @@ def test_personality_is_warm_short_and_uses_the_owners_name():
 def test_context_is_added_to_the_system_prompt():
     system = brain.build_messages("Hi", context="Current date and time: today.")[0]["content"]
     assert "Current date and time: today." in system
+
+
+
+def test_system_prompt_forbids_inventing_past_conversations():
+    # PARKER once said "Remember what we said earlier about starting small?"
+    assert "Never refer to earlier conversations" in brain.SYSTEM_PROMPT

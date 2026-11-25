@@ -66,11 +66,14 @@ In the chat:
 | `/reset` | Forget the current conversation; saved memories stay |
 | `/help`, `/quit` | Show commands, leave (or Ctrl+C) |
 
+Add `--timing` to see how long thinking and speaking take for each reply.
+
 Each part can also be tried on its own:
 
 ```powershell
 python -m backend.brain "Who are you?"
 python -m backend.speech_output "Good evening. All systems are ready."
+python -m backend.speech_output --compare     # hear speed and rhythm options
 python -m backend.speech_input
 ```
 

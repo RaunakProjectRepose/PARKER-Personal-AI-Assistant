@@ -30,8 +30,10 @@ speech_input.py ──text──► assistant.py ──messages──► brain.p
    are added to the system prompt too, and `greeting.py` builds the startup greeting from them.
 3. **Thinking** – `brain.generate_response()` sends the system prompt, history and new message
    to Ollama's `/api/chat` endpoint with thinking mode off, and returns the reply text.
-4. **Speaking** – `speech_output.Speaker` turns the reply into a WAV in memory with Piper,
-   adds a short silent lead-in so Windows audio devices wake in time, and plays it.
+4. **Speaking** – `speech_output.Speaker` asks Piper for the reply one sentence at a time and
+   feeds the audio to a `StreamPlayer`: an output stream opened once at startup and kept open, so
+   the device never sleeps. A background thread plays each sentence while the next is generated.
+   If the stream can't open, it falls back to whole-reply playback with `winsound`.
 
 ## Design decisions
 
@@ -50,7 +52,8 @@ speech_input.py ──text──► assistant.py ──messages──► brain.p
 | Ten-turn history limit | Qwen is loaded with a 4096-token context window. |
 | Push-to-talk, no wake word yet | Simpler, reliable, and the recording state is always obvious. |
 | Whisper on CPU first | Works without extra NVIDIA libraries; a 3.5 s clip transcribes in ~1.1 s. |
-| `winsound` for playback | Built into Python on Windows; no extra audio dependency. |
+| Always-open `sounddevice` stream for playback | Opening a new playback per reply let the device sleep (clipped first words, 1 s lead-in) and sounded choppy; `winsound` remains as a fallback. |
+| Sentence-by-sentence synthesis | Speech starts after the first sentence instead of after the whole reply. |
 | Voice and microphone load lazily | Text-only mode needs no voice files or speech models. |
 | Errors become `BrainError` / `SpeechError` / `SpeechInputError` | The chat reports problems and keeps running instead of crashing. |
 | Dependencies are injected (`generate=`, `load_voice=`, `play=`, `record=`) | Tests use fakes, so they run offline in under a second. |

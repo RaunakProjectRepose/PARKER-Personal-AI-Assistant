@@ -289,3 +289,16 @@ def test_bad_event_date_is_explained():
 def test_no_greeting_without_an_agenda():
     out, _ = chat(["/quit"])
     assert not any(line.startswith("PARKER: Good ") for line in out)
+
+
+
+def test_timing_is_reported_after_each_reply():
+    timings = []
+    inputs = iter(["Hello", "/quit"])
+    run(
+        Assistant(generate=lambda m, h, **kw: "ok"),
+        input_fn=lambda _p: next(inputs),
+        print_fn=lambda *a: None,
+        timing_fn=lambda thought, spoke: timings.append((thought, spoke)),
+    )
+    assert len(timings) == 1 and all(t >= 0 for t in timings[0])
