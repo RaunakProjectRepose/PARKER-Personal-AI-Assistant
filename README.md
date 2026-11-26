@@ -9,6 +9,8 @@ no subscriptions, and nothing you say leaves the machine.
 - **Reminders** — "remind me in 20 minutes to stretch", "remind me at 6 pm to call Mum",
   "remind me tomorrow at 9 to submit the assignment". Spoken aloud on time with a golden pop-up
   (Done / Snooze 10 min), even from the tray; missed ones are shown when PARKER next starts.
+- **Finds files** — "find my AIML303 notes", "where is my resume?", "find my latest screenshot".
+  Searches file names (never contents) in your own folders, then "open the first one".
 - **Opens apps and folders** — "open VS Code", "launch Chrome", "open my Downloads". Only Start
   Menu apps, a few Windows tools, your standard folders and entries you add; the model never
   runs anything.
@@ -106,6 +108,8 @@ In the chat:
 | `/events`, `/cancel <id>` | List the next 7 days, delete an event |
 | `remind me …` (typed or spoken) | e.g. "remind me in 20 minutes to stretch", "remind me on Friday at 10 am about the hackathon" |
 | `/reminders`, `/reminder cancel <id>` | List upcoming reminders, cancel one (or select it in the Agenda drawer and press Delete) |
+| `find my …` / `where is my …` (typed or spoken) | Search file names in Documents, Downloads, Desktop, Pictures, Music, Videos (incl. OneDrive) |
+| `open the first one`, `open number 2`, `open it`, `show it in the folder` | After a search; or click a result |
 | `open <app or folder>` (typed or spoken) | e.g. "open VS Code", "open my Downloads folder" |
 | `/apps [search]` | List what PARKER can open (`/apps refresh` after installing something) |
 | `/app add <name> = <path or web address>` | Teach PARKER a new one, e.g. `/app add Timetable = https://…` |
@@ -153,6 +157,7 @@ backend/
   agenda.py          # plans and events (same database)
   apps.py            # opening apps and folders by name
   reminders.py       # "remind me …": understanding, storing and firing reminders
+  files.py           # "find my …": searching file names in your own folders
   greeting.py        # startup greeting built from the agenda
   speech_input.py    # microphone recording + speech-to-text
   speech_output.py   # text-to-speech + playback

@@ -31,15 +31,18 @@ class Worker(QObject):
     heard = Signal(str)  # what the microphone picked up ("" if nothing)
     replied = Signal(str)  # PARKER's answer from the model
     failed = Signal(str)  # a readable error message
+    files_found = Signal(str, list)  # the query, a list of FoundFile
 
     def __init__(
         self,
         assistant: Assistant,
         make_speaker: Callable[[], object] | None = default_speaker,
         make_listener: Callable[[Callable], object] | None = default_listener,
+        finder=None,
     ) -> None:
         super().__init__()
         self.assistant = assistant
+        self.finder = finder
         self._make_speaker = make_speaker
         self._make_listener = make_listener
         self.speaker = None
@@ -80,6 +83,18 @@ class Worker(QObject):
             return
         self.replied.emit(reply)
         self._speak(reply)
+
+    @Slot(str)
+    def find_files(self, query: str) -> None:
+        """Search file names off the window thread (it can take a few seconds)."""
+        self.status_changed.emit("thinking")
+        try:
+            results = self.finder.search(query) if self.finder is not None else []
+        except Exception as err:  # e.g. a drive disappearing mid-search
+            self.failed.emit(f"File search problem: {err}")
+            results = []
+        self.status_changed.emit("idle")
+        self.files_found.emit(query, results)
 
     @Slot(str)
     def say(self, text: str) -> None:

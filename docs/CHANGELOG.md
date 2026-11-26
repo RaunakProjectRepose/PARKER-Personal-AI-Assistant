@@ -2,6 +2,21 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## Unreleased – Milestone 4: finding files
+
+### Added
+- "find my …", "where is my …", "search my files for …", "where did I save …" search file names
+  in Documents, Downloads, Desktop, Pictures, Music and Videos (including OneDrive ones) and any
+  folders in `PARKER_SEARCH_FOLDERS`. Contents are never read.
+- Matching ignores spacing and punctuation ("AIML303" finds "aiml_303"), understands plurals and
+  folder names, ranks recent files higher, and narrows by type words (PDF, slides, spreadsheet,
+  photo, video, code…). Hidden, program, `.git`, `node_modules` and virtual-environment folders
+  and Office lock files are skipped; a search never runs longer than 4 seconds.
+- Results card in the app (click to open, folder icon to show in File Explorer) and numbered
+  results in the terminal; follow-ups "open the first one", "open number 2", "open it",
+  "show it in the folder". In the app the search runs on the worker thread.
+- The model is told it cannot see or search files itself.
+
 ## Unreleased – Milestone 4: reminders
 
 ### Added

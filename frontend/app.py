@@ -75,7 +75,7 @@ from backend.agenda import Agenda, AgendaError, parse_time
 from backend.assistant import Assistant
 from backend.brain import MODEL, OWNER_NAME
 from backend.greeting import build_greeting, time_of_day
-from backend.apps import AppLauncher
+from backend.apps import AppError, AppLauncher
 from backend.main import (
     HELP_TEXT,
     QUIT_COMMANDS,
@@ -84,7 +84,10 @@ from backend.main import (
     handle_apps,
     handle_memory,
     handle_reminders,
+    FileResults,
+    handle_file_pick,
 )
+from backend.files import FileFinder, FoundFile, parse_find_request, summary
 from backend.reminders import Reminders, announcement
 from backend.memory import Memory, MemoryStoreError
 from frontend import autostart, theme
@@ -177,6 +180,43 @@ class ChatView(QScrollArea):
         self.verticalScrollBar().rangeChanged.connect(
             lambda _min, mx: self.verticalScrollBar().setValue(mx)
         )
+
+    def add_files(self, results: list, on_open, on_reveal) -> None:
+        """A card listing search results: click a name to open it, the folder icon
+        to show it in File Explorer. Must run on the window thread."""
+        if QThread.currentThread() is not self.thread():
+            raise RuntimeError("ChatView.add_files called from a background thread")
+        self.messages.append(("files", [str(f.path) for f in results]))
+        card = QFrame()
+        card.setObjectName("parkerBubble")
+        card.setMaximumWidth(BUBBLE_MAX_WIDTH)
+        card.setMinimumWidth(min(BUBBLE_MAX_WIDTH, 420))
+        inner = QVBoxLayout(card)
+        inner.setContentsMargins(10, 8, 10, 8)
+        inner.setSpacing(2)
+        self.file_buttons = []
+        for number, found in enumerate(results, 1):
+            row = QHBoxLayout()
+            row.setSpacing(4)
+            open_button = QPushButton(f"{number}.  {found.name}")
+            open_button.setObjectName("fileLink")
+            open_button.setToolTip(f"Open {found.path}")
+            open_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            open_button.clicked.connect(lambda _=False, f=found: on_open(f))
+            where = QLabel(f"{found.folder} · {found.modified:%d %b}")
+            where.setObjectName("bubbleMeta")
+            reveal = icon_button("folder", "Show in folder", 28, theme.TEXT_MUTED)
+            reveal.clicked.connect(lambda _=False, f=found: on_reveal(f))
+            row.addWidget(open_button, 1)
+            row.addWidget(where)
+            row.addWidget(reveal)
+            inner.addLayout(row)
+            self.file_buttons.append((open_button, reveal))
+        soft_shadow(card, blur=24, alpha=18, y=4)
+        outer = QHBoxLayout()
+        outer.addWidget(card)
+        outer.addStretch(1)
+        self._layout.insertLayout(self._layout.count() - 1, outer)
 
     def add(self, kind: str, text: str, meta: str = "") -> None:
         """kind: 'user', 'parker', 'note' or 'error'. Must run on the window thread."""
@@ -500,6 +540,7 @@ class MainWindow(QMainWindow):
     say_requested = Signal(str)
     listen_requested = Signal()
     load_requested = Signal()
+    find_requested = Signal(str)
 
     def __init__(
         self,
@@ -515,9 +556,12 @@ class MainWindow(QMainWindow):
         start_hidden: bool = False,
         apps: AppLauncher | None = None,
         reminders: Reminders | None = None,
+        finder: FileFinder | None = None,
     ) -> None:
         super().__init__()
         self.assistant = assistant
+        self.finder = finder
+        self.file_results = FileResults()
         self.apps = apps
         self.reminders = reminders
         self.toasts: list[ReminderToast] = []
@@ -659,7 +703,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+2"), self, activated=lambda: self.toggle_drawer("Memories"))
 
         # ---- worker: slow work happens off the window thread -------------------
-        self.worker = Worker(assistant, make_speaker, make_listener)
+        self.worker = Worker(assistant, make_speaker, make_listener, finder=finder)
         self._thread = None
         if threaded:
             self._thread = QThread(self)
@@ -669,6 +713,7 @@ class MainWindow(QMainWindow):
         self.say_requested.connect(self.worker.say)
         self.listen_requested.connect(self.worker.listen)
         self.load_requested.connect(self.worker.load)
+        self.find_requested.connect(self.worker.find_files)
         # Everything the worker reports must run on the window's thread: Qt
         # widgets may only be created and changed there. QueuedConnection plus
         # slots on this window (not lambdas) guarantees that.
@@ -680,6 +725,7 @@ class MainWindow(QMainWindow):
         self.worker.heard.connect(self._heard, queued)
         self.worker.replied.connect(self._replied, queued)
         self.worker.failed.connect(self._failed, queued)
+        self.worker.files_found.connect(self._files_found, queued)
         self._recording_limit = QTimer(self)
         self._recording_limit.setSingleShot(True)
         # stop_listening is thread-safe, so call it directly from this thread; a
@@ -979,6 +1025,25 @@ class MainWindow(QMainWindow):
         if not on:
             self.worker.stop_speaking()
 
+    @Slot(str, list)
+    def _files_found(self, query: str, results: list) -> None:
+        self.file_results.query, self.file_results.results = query, results
+        self._say(summary(query, results, self.finder))
+        if results:
+            self.chat.add_files(results, self._open_file, self._reveal_file)
+
+    def _open_file(self, found: FoundFile) -> None:
+        try:
+            self.finder.open(found)
+        except AppError as err:
+            self.chat.add("error", str(err))
+
+    def _reveal_file(self, found: FoundFile) -> None:
+        try:
+            self.finder.reveal(found)
+        except AppError as err:
+            self.chat.add("error", str(err))
+
     @Slot(str)
     def _replied(self, text: str) -> None:
         self.chat.add("parker", text)
@@ -1020,6 +1085,12 @@ class MainWindow(QMainWindow):
             return
         if handle_reminders(text, self.reminders, self._say, self._print, self._now()):
             self.agenda_panel.refresh()
+            return
+        if handle_file_pick(text, self.finder, self.file_results, self._say, self._print):
+            return
+        query = parse_find_request(text)
+        if query is not None and self.finder is not None:
+            self.find_requested.emit(query)  # searched on the worker thread
             return
         if handle_apps(text, self.apps, self._say, self._print):
             return
@@ -1101,6 +1172,7 @@ def main(argv: list[str] | None = None) -> int:
         reminders = Reminders()
     except Exception:
         reminders = None
+    finder = FileFinder()
 
     window = MainWindow(
         Assistant(memory=memory, agenda=agenda),
@@ -1109,6 +1181,7 @@ def main(argv: list[str] | None = None) -> int:
         start_hidden=args.background,
         apps=apps,
         reminders=reminders,
+        finder=finder,
     )
     if window.tray is None:
         app.setQuitOnLastWindowClosed(True)  # no tray: closing really quits

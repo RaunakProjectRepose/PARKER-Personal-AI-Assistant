@@ -72,6 +72,11 @@ QFrame#userBubble {{ background: {GOLD_PALE}; border: none; border-radius: 20px;
 QFrame#parkerBubble {{ background: #FFFFFF; border: none; border-radius: 20px; }}
 QLabel#bubbleText {{ background: transparent; border: none; font-size: 11pt; }}
 QLabel#bubbleMeta {{ background: transparent; color: {TEXT_MUTED}; font-size: 8pt; }}
+QPushButton#fileLink {{
+    background: transparent; color: {TEXT}; border: none; border-radius: 10px;
+    padding: 8px 10px; text-align: left; font-weight: 500; font-size: 10.5pt;
+}}
+QPushButton#fileLink:hover {{ background: {GOLD_PALE}; color: {GOLD_DEEP}; }}
 QLabel#note {{ color: {TEXT_MUTED}; font-style: italic; font-size: 9.5pt; }}
 QLabel#error {{ color: {ERROR}; font-size: 9.5pt; }}
 

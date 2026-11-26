@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta
 
 from backend.agenda import Agenda, AgendaError, parse_event
 from backend.apps import AppError, AppLauncher, parse_open_request
+from backend.files import FileFinder, FoundFile, parse_find_request, parse_pick, summary
 from backend.reminders import ReminderError, Reminders, announcement, parse_reminder
 from backend.assistant import Assistant
 from backend.brain import MODEL, OWNER_NAME, BrainError
@@ -43,6 +44,9 @@ HELP_TEXT = """Commands:
   remind me ...        e.g. "remind me in 20 minutes to stretch", "remind me at 6 pm to call Mum"
   /reminders           list upcoming reminders
   /reminder cancel <id>   cancel one
+  find my ...          e.g. "find my AIML303 notes", "where is my resume?" (file names only)
+  open the first one   after a search: open a result ("open number 2", "open it",
+                       "show it in the folder")
   open <app or folder> e.g. "open VS Code", "open my Downloads" (typed or spoken)
   /apps [search]       list apps PARKER can open
   /app add <name> = <path or web address>   teach PARKER a new one
@@ -178,6 +182,65 @@ def announce_due_reminders(reminders: Reminders | None, say, now: datetime) -> i
     return len(fired)
 
 
+class FileResults:
+    """The latest search results, so "open the first one" knows what "one" is."""
+
+    def __init__(self) -> None:
+        self.query = ""
+        self.results: list[FoundFile] = []
+
+
+def results_text(results: list[FoundFile]) -> str:
+    return "\n".join(
+        f"  {i}. {f.name}  ({f.folder}, {f.modified:%d %b %Y})" for i, f in enumerate(results, 1)
+    )
+
+
+def report_search(query: str, results: list[FoundFile], finder: FileFinder, state: FileResults,
+                  say, print_fn) -> None:
+    state.query, state.results = query, results
+    say(summary(query, results, finder))
+    if results:
+        print_fn(results_text(results) + "\n")
+
+
+def handle_file_pick(message: str, finder: FileFinder | None, state: FileResults | None,
+                     say, print_fn) -> bool:
+    """"open the first one" / "show it in the folder" after a search."""
+    if finder is None or state is None or not state.results:
+        return False
+    pick = parse_pick(message)
+    if pick is None:
+        return False
+    index, reveal = pick
+    if not -len(state.results) <= index < len(state.results):
+        print_fn(f"PARKER: There are only {len(state.results)} results.\n")
+        return True
+    chosen = state.results[index]
+    try:
+        if reveal:
+            finder.reveal(chosen)
+            say(f"Showing {chosen.name} in its folder.")
+        else:
+            finder.open(chosen)
+            say(f"Opening {chosen.name}.")
+    except AppError as err:
+        print_fn(f"PARKER: {err}\n")
+    return True
+
+
+def handle_files(message: str, finder: FileFinder | None, state: FileResults | None,
+                 say, print_fn) -> bool:
+    """Search for files ("find my X") and open results. True if handled."""
+    if handle_file_pick(message, finder, state, say, print_fn):
+        return True
+    query = parse_find_request(message)
+    if query is None or finder is None or state is None:
+        return False
+    report_search(query, finder.search(query), finder, state, say, print_fn)
+    return True
+
+
 def handle_apps(message: str, apps: AppLauncher | None, say, print_fn) -> bool:
     """Handle "open X" requests and the /apps and /app commands. True if handled.
 
@@ -301,6 +364,7 @@ def run(
     timing_fn=None,
     apps: AppLauncher | None = None,
     reminders: Reminders | None = None,
+    finder: FileFinder | None = None,
 ) -> None:
     """Read messages, print (and optionally speak) PARKER's replies, until the user quits.
 
@@ -338,6 +402,7 @@ def run(
         today = now().date()
         say(build_greeting(OWNER_NAME, agenda.open_plans(), agenda.events_on(today), now()))
 
+    file_results = FileResults()
     while True:
         # The terminal can only speak between messages; the desktop app announces
         # reminders on time, even from the tray.
@@ -379,6 +444,8 @@ def run(
             if handle_agenda(message, assistant.agenda, say, print_fn, now().date()):
                 continue
             if handle_reminders(message, reminders, say, print_fn, now()):
+                continue
+            if handle_files(message, finder, file_results, say, print_fn):
                 continue
             if handle_apps(message, apps, say, print_fn):
                 continue
@@ -460,6 +527,7 @@ def main(argv: list[str] | None = None) -> None:
         reminders = Reminders()
     except Exception as err:
         print(f"[reminders error] {err}\nContinuing without reminders.\n")
+    finder = FileFinder()
 
     try:
         run(
@@ -469,6 +537,7 @@ def main(argv: list[str] | None = None) -> None:
             timing_fn=timing_fn,
             apps=apps,
             reminders=reminders,
+            finder=finder,
         )
     finally:
         for store in (memory, agenda, apps, reminders, speaker):

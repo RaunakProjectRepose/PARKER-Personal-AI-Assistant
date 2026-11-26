@@ -54,6 +54,16 @@ def _draw(name: str, p: QPainter, colour: QColor) -> None:
             p.setBrush(QColor("#FFFFFF"))
             p.drawEllipse(QPointF(x, y), 2.2, 2.2)
             p.setBrush(Qt.BrushStyle.NoBrush)
+    elif name == "folder":
+        path = QPainterPath(QPointF(3.5, 7))
+        path.lineTo(3.5, 18.5)
+        path.lineTo(20.5, 18.5)
+        path.lineTo(20.5, 8.5)
+        path.lineTo(11.5, 8.5)
+        path.lineTo(9.5, 6)
+        path.lineTo(4.5, 6)
+        path.closeSubpath()
+        p.drawPath(path)
     elif name == "close":
         p.drawLine(QPointF(6.5, 6.5), QPointF(17.5, 17.5))
         p.drawLine(QPointF(17.5, 6.5), QPointF(6.5, 17.5))
