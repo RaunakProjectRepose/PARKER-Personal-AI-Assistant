@@ -1100,6 +1100,13 @@ class MainWindow(QMainWindow):
             self._start_companion()
             self.chat.add("note", "All phones unpaired. Pair again with the new code.")
 
+        if self.companion_server is None:
+            QMessageBox.information(
+                self, "PARKER",
+                "The phone companion isn't running. Untick and tick Settings → Phone companion, "
+                "and check the chat for the reason.",
+            )
+            return None
         dialog = PairingDialog(qr_matrix(pairing_payload(self._companion_identity, PORT, hosts)),
                                hosts, PORT, reset, self)
         dialog.open()

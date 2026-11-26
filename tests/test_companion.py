@@ -375,3 +375,36 @@ def test_hosts_can_be_set_by_hand():
     from backend.companion import local_addresses
 
     assert local_addresses(env="192.168.1.48, 100.64.0.9") == ["192.168.1.48", "100.64.0.9"]
+
+
+def test_server_reports_when_the_port_is_already_in_use(parts, tmp_path):
+    """It used to fail silently, so the phone just timed out."""
+    _, companion, *_ = parts
+    identity = load_or_create_identity(tmp_path)
+    port = free_port()
+    first = CompanionServer(companion, identity, port=port, host="127.0.0.1")
+    first.start()
+    try:
+        second = CompanionServer(companion, identity, port=port, host="127.0.0.1")
+        with pytest.raises(RuntimeError, match=f"port {port} is probably already in use"):
+            second.start(wait_seconds=5)
+    finally:
+        first.stop()
+
+
+def test_window_reports_a_companion_that_could_not_start(tmp_path):
+    servers = []
+    window = make_window(tmp_path, servers)
+
+    class Failing:
+        def __init__(self, companion, identity):
+            pass
+
+        def start(self):
+            raise RuntimeError("PARKER couldn't listen for the phone: port 8765 is probably already in use.")
+
+    window._make_companion_server = Failing
+    window.companion_action.setChecked(True)
+    assert window.companion_server is None
+    assert ("error", "Phone companion couldn't start: PARKER couldn't listen for the phone: "
+                     "port 8765 is probably already in use.") in window.chat.messages

@@ -92,10 +92,35 @@ class CompanionServer:
             ssl_certfile=str(identity.cert_path), ssl_keyfile=str(identity.key_path),
         )
         self._server = uvicorn.Server(config)
-        self._thread = threading.Thread(target=self._server.run, name="parker-companion", daemon=True)
+        self._error: BaseException | None = None
+        self._thread = threading.Thread(target=self._run, name="parker-companion", daemon=True)
+        self.port = port
 
-    def start(self) -> None:
+    def _run(self) -> None:
+        try:
+            self._server.run()
+        except BaseException as err:  # uvicorn exits (SystemExit) if it can't bind the port
+            self._error = err
+
+    def start(self, wait_seconds: float = 8.0) -> None:
+        """Start and wait until it is really listening; raise with the reason if not."""
+        import time
+
         self._thread.start()
+        deadline = time.monotonic() + wait_seconds
+        while time.monotonic() < deadline:
+            if self._server.started:
+                return
+            if not self._thread.is_alive():
+                break
+            time.sleep(0.05)
+        if not self._server.started:
+            self._server.should_exit = True
+            reason = "it didn't start in time"
+            if self._error is not None or not self._thread.is_alive():
+                reason = (f"port {self.port} is probably already in use (is another PARKER running?)"
+                          if isinstance(self._error, SystemExit) or self._error is None else str(self._error))
+            raise RuntimeError(f"PARKER couldn't listen for the phone: {reason}.")
 
     @property
     def started(self) -> bool:
