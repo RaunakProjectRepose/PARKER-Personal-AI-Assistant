@@ -338,3 +338,40 @@ def test_pairing_window_shows_a_qr_with_this_laptops_token(tmp_path):
     dialog.findChildren(__import__("PySide6.QtWidgets", fromlist=["QPushButton"]).QPushButton)[0].click()
     assert servers[-1].identity.token != old  # "Unpair all phones" made a new code
     assert servers[-2].running is False
+
+
+# ---- finding the laptop's Wi-Fi address (bug from the first phone test) ----------
+
+def test_home_wifi_address_comes_before_vpn_addresses(monkeypatch):
+    import backend.companion as c
+
+    # On the laptop a VPN-style 10.58.x.x address was put in the QR code instead of
+    # the Wi-Fi's 192.168.1.48, so the phone (192.168.1.17) couldn't connect.
+    monkeypatch.setattr(c.socket, "gethostbyname_ex",
+                        lambda name: (name, [], ["10.58.18.182", "192.168.1.48", "169.254.3.4", "100.101.2.3"]))
+    monkeypatch.setattr(c.socket, "getaddrinfo", lambda *a, **k: [])
+
+    class VpnRoute:
+        def __init__(self, *a):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def connect(self, addr):
+            pass
+
+        def getsockname(self):
+            return ("10.58.18.182", 50000)
+
+    monkeypatch.setattr(c.socket, "socket", VpnRoute)
+    assert c.local_addresses(env="") == ["192.168.1.48", "10.58.18.182", "100.101.2.3"]
+
+
+def test_hosts_can_be_set_by_hand():
+    from backend.companion import local_addresses
+
+    assert local_addresses(env="192.168.1.48, 100.64.0.9") == ["192.168.1.48", "100.64.0.9"]

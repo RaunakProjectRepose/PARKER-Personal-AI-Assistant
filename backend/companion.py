@@ -19,6 +19,7 @@ import hashlib
 import io
 import ipaddress
 import json
+import os
 import secrets
 import socket
 import threading
@@ -114,13 +115,31 @@ def reset_pairing(folder: Path = IDENTITY_DIR) -> Identity:
     return load_or_create_identity(folder)
 
 
-def local_addresses() -> list[str]:
-    """This laptop's addresses the phone could reach (Wi-Fi, and Tailscale 100.x)."""
+def _address_rank(addr: str) -> int:
+    """Home Wi-Fi first: 192.168.x.x, then 172.16-31.x.x, then 10.x.x.x (often VPNs or
+    virtual adapters), then Tailscale's 100.x.x.x for use away from home."""
+    if addr.startswith("192.168."):
+        return 0
+    if addr.startswith("172."):
+        return 1
+    if addr.startswith("10."):
+        return 2
+    return 3
+
+
+def local_addresses(env: str | None = None) -> list[str]:
+    """This laptop's addresses the phone could reach, best first.
+
+    Lists EVERY network connection (Wi-Fi, Ethernet, VPN, Tailscale), not just
+    the one Windows uses for the internet: with a VPN on, that one is the VPN's.
+    PARKER_COMPANION_HOSTS (comma-separated) overrides the list.
+    """
+    override = env if env is not None else os.environ.get("PARKER_COMPANION_HOSTS", "")
+    if override.strip():
+        return [h.strip() for h in override.split(",") if h.strip()]
     found: list[str] = []
-    try:  # the address used for outgoing traffic; nothing is actually sent
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("192.0.2.1", 9))
-            found.append(s.getsockname()[0])
+    try:
+        found += socket.gethostbyname_ex(socket.gethostname())[2]  # all IPv4 addresses
     except OSError:
         pass
     try:
@@ -128,12 +147,23 @@ def local_addresses() -> list[str]:
             found.append(info[4][0])
     except OSError:
         pass
-    usable = []
+    try:  # the address used for outgoing traffic; nothing is actually sent
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 9))
+            found.append(s.getsockname()[0])
+    except OSError:
+        pass
+    usable: list[str] = []
     for addr in found:
-        ip = ipaddress.ip_address(addr)
-        if (ip.is_private or addr.startswith("100.")) and not ip.is_loopback and addr not in usable:
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            continue
+        if ip.is_loopback or ip.is_link_local or addr in usable:
+            continue  # 127.x and 169.254.x (adapters with no network) can't be reached
+        if ip.is_private or addr.startswith("100."):
             usable.append(addr)
-    return usable
+    return sorted(usable, key=_address_rank)
 
 
 def pairing_payload(identity: Identity, port: int = PORT, hosts: list[str] | None = None) -> str:

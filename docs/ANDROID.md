@@ -49,6 +49,20 @@ The project targets Android 17 (API 37) and runs on Android 8 and newer.
 Keep the QR code private: it contains the pairing token. **Unpair all phones** in the same window
 issues a new one, and phones paired earlier stop working.
 
+## If the phone can't connect
+
+The app's error lists each address it tried. Check, in order:
+
+1. **The address.** The Pair phone window lists the laptop's addresses, home Wi-Fi (192.168.x.x)
+   first. If the right one is missing, set it by hand before starting PARKER:
+   `$env:PARKER_COMPANION_HOSTS = "192.168.1.48"`, then pair again.
+2. **Network profile.** Windows blocks incoming connections on **Public** networks. For your home
+   Wi-Fi: **Settings → Network & internet → Wi-Fi → (your network) → Network profile type →
+   Private**. Check with `Get-NetConnectionProfile`.
+3. **Firewall rule.** In PowerShell **run as Administrator**:
+   `New-NetFirewallRule -DisplayName "PARKER companion" -Direction Inbound -Protocol TCP -LocalPort 8765 -Action Allow -Profile Private`
+4. **Guest Wi-Fi or a VPN** on the phone can stop devices from seeing each other.
+
 ## How it's protected
 
 - **Off by default**, and only while the desktop app is running.
