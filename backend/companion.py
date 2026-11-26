@@ -127,6 +127,30 @@ def _address_rank(addr: str) -> int:
     return 3
 
 
+TAILSCALE_PATHS = [
+    "tailscale",  # on PATH
+    r"C:\Program Files\Tailscale\tailscale.exe",
+    r"C:\Program Files (x86)\Tailscale\tailscale.exe",
+]
+
+
+def tailscale_addresses(run=None) -> list[str]:
+    """Ask Tailscale itself for this laptop's 100.x address (it isn't always visible
+    to Python, and the tailscale command isn't always on PATH)."""
+    import subprocess
+
+    run = run or subprocess.run
+    for exe in TAILSCALE_PATHS:
+        try:
+            result = run([exe, "ip", "-4"], capture_output=True, text=True, timeout=3)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        found = [line.strip() for line in (result.stdout or "").splitlines() if line.strip().startswith("100.")]
+        if found:
+            return found
+    return []
+
+
 def local_addresses(env: str | None = None) -> list[str]:
     """This laptop's addresses the phone could reach, best first.
 
@@ -153,6 +177,7 @@ def local_addresses(env: str | None = None) -> list[str]:
             found.append(s.getsockname()[0])
     except OSError:
         pass
+    found += tailscale_addresses()
     usable: list[str] = []
     for addr in found:
         try:

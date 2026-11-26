@@ -368,6 +368,7 @@ def test_home_wifi_address_comes_before_vpn_addresses(monkeypatch):
             return ("10.58.18.182", 50000)
 
     monkeypatch.setattr(c.socket, "socket", VpnRoute)
+    monkeypatch.setattr(c, "tailscale_addresses", lambda: [])
     assert c.local_addresses(env="") == ["192.168.1.48", "10.58.18.182", "100.101.2.3"]
 
 
@@ -408,3 +409,25 @@ def test_window_reports_a_companion_that_could_not_start(tmp_path):
     assert window.companion_server is None
     assert ("error", "Phone companion couldn't start: PARKER couldn't listen for the phone: "
                      "port 8765 is probably already in use.") in window.chat.messages
+
+
+
+def test_tailscale_address_is_asked_from_tailscale_itself(monkeypatch):
+    """On the laptop Python couldn't see the Tailscale address and `tailscale`
+    wasn't on PATH, so it's also looked up in Tailscale's install folder."""
+    import subprocess
+    from types import SimpleNamespace
+
+    import backend.companion as c
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd[0])
+        if cmd[0] == "tailscale":
+            raise FileNotFoundError("not on PATH")
+        return SimpleNamespace(stdout="100.71.12.5\n")
+
+    assert c.tailscale_addresses(run=fake_run) == ["100.71.12.5"]
+    assert calls[:2] == ["tailscale", r"C:\Program Files\Tailscale\tailscale.exe"]
+    assert c.tailscale_addresses(run=lambda *a, **k: (_ for _ in ()).throw(subprocess.TimeoutExpired("t", 3))) == []
