@@ -14,7 +14,7 @@ it: it chats, records your voice, plays PARKER's replies and shows your day, all
 
 ## Installing the app
 
-**Option A: the ready-made file.** Copy `PARKER-0.1.0.apk` to the phone, open it, and allow
+**Option A: the ready-made file.** Copy `PARKER-0.1.1.apk` to the phone, open it, and allow
 "Install unknown apps" for the app you opened it with (Files or Chrome) when Android asks. It is a
 debug build signed on the build machine; Android may show a Play Protect warning for apps not from
 the Play Store; choose "Install anyway".
@@ -62,6 +62,11 @@ The app's error lists each address it tried. Check, in order:
 3. **Firewall rule.** In PowerShell **run as Administrator**:
    `New-NetFirewallRule -DisplayName "PARKER companion" -Direction Inbound -Protocol TCP -LocalPort 8765 -Action Allow -Profile Private`
 4. **Guest Wi-Fi or a VPN** on the phone can stop devices from seeing each other.
+5. **Android 17's "Nearby devices" permission.** Android 17 blocks apps from the home network
+   until it's allowed; PARKER asks when it starts. If you tapped Deny: Settings → Apps → PARKER →
+   Permissions → Nearby devices → Allow. (If Chrome reaches `https://<laptop>:8765/api/status`
+   but the app doesn't, this is the cause.)
+6. **Is PARKER listening?** `netstat -ano | findstr 8765` must show `0.0.0.0:8765 … LISTENING`.
 
 ## How it's protected
 

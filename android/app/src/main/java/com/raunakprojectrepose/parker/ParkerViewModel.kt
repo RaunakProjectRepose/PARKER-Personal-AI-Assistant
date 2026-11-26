@@ -37,8 +37,13 @@ class ParkerViewModel(app: Application) : AndroidViewModel(app) {
     private val recorder = Recorder()
     private val player = Player(app)
 
-    init {
-        if (client != null) connect()
+    /** Set by the activity: true once Android allows reaching the local network. */
+    var networkAllowed: () -> Boolean = { true }
+
+    fun networkBlocked() {
+        status = Status.Offline
+        problem = "PARKER needs the \"Nearby devices\" permission to reach your laptop on the Wi-Fi. " +
+            "Allow it in Settings → Apps → PARKER → Permissions, then tap Try again."
     }
 
     /** From a scanned QR code. Returns false if it wasn't a PARKER code. */
@@ -60,7 +65,16 @@ class ParkerViewModel(app: Application) : AndroidViewModel(app) {
         today = null
     }
 
-    fun connect() = work(Status.Connecting) { c ->
+    /** Connects now, or waits for Android's permission answer (the activity calls back). */
+    fun connect() {
+        if (!networkAllowed()) {
+            status = Status.Connecting
+            return
+        }
+        connectNow()
+    }
+
+    private fun connectNow() = work(Status.Connecting) { c ->
         c.connect()
         val t = c.today()
         withContext(Dispatchers.Main) {

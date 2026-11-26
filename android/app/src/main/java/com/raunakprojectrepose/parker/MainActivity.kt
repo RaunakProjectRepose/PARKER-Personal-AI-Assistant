@@ -2,6 +2,7 @@ package com.raunakprojectrepose.parker
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,6 +15,9 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+
+private const val LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
+private const val LOCAL_NETWORK_SDK = 37 // Android 17
 
 class MainActivity : ComponentActivity() {
     private val vm: ParkerViewModel by viewModels()
@@ -28,9 +32,24 @@ class MainActivity : ComponentActivity() {
         if (granted) vm.toggleTalking()
     }
 
+    /** Android 17 blocks apps from the home network until "Nearby devices" is allowed. */
+    private val askLocalNetwork = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) vm.connect() else vm.networkBlocked()
+    }
+
+    private fun localNetworkGranted(): Boolean =
+        Build.VERSION.SDK_INT < LOCAL_NETWORK_SDK ||
+            ContextCompat.checkSelfPermission(this, LOCAL_NETWORK) == PackageManager.PERMISSION_GRANTED
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        vm.networkAllowed = {
+            val ok = localNetworkGranted()
+            if (!ok) askLocalNetwork.launch(LOCAL_NETWORK)
+            ok
+        }
+        if (vm.pairing != null) vm.connect()
         setContent {
             ParkerTheme {
                 if (vm.pairing == null) {
