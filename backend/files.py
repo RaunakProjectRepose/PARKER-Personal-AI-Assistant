@@ -195,7 +195,9 @@ class FileFinder:
                 with os.scandir(folder) as entries:
                     for entry in entries:
                         seen += 1
-                        if seen > self.max_entries or time.monotonic() - started > self.time_budget:
+                        # ">=" so a zero budget stops at once even on Windows, whose
+                        # clock only ticks every ~15 ms.
+                        if seen > self.max_entries or time.monotonic() - started >= self.time_budget:
                             self.last_search_complete = False
                             return
                         name = entry.name

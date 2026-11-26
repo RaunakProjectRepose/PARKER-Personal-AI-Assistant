@@ -107,7 +107,10 @@ def names(results):
 def test_only_the_owners_folders_are_searched(finder, home):
     roots = {p.name for p in finder.roots}
     assert roots == {"Documents", "Downloads", "Desktop", "Pictures", "Music", "Videos"}
-    assert all("AppData" not in str(p) for p in finder.roots)
+    # Only check below the home folder: on Windows pytest's own temporary
+    # folders live under AppData, so the full path may contain it.
+    home = home.resolve()
+    assert all("AppData" not in p.relative_to(home).parts for p in finder.roots)
 
 
 def test_aiml303_notes_matches_different_spellings_and_skips_junk(finder):
