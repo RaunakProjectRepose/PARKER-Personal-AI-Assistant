@@ -105,6 +105,7 @@ from frontend.hotkey import (
 from frontend.icons import icon
 from frontend.orb import StatusOrb
 from frontend.toast import ReminderToast
+from frontend.pairing import PairingDialog
 from frontend.worker import Worker, default_listener, default_speaker
 
 MAX_RECORDING_MS = 30_000  # Recording always stops by itself after 30 s.
@@ -576,6 +577,8 @@ class MainWindow(QMainWindow):
         apps: AppLauncher | None = None,
         reminders: Reminders | None = None,
         finder: FileFinder | None = None,
+        make_companion_server=None,
+        companion_dir=None,
     ) -> None:
         super().__init__()
         self.assistant = assistant
@@ -707,11 +710,18 @@ class MainWindow(QMainWindow):
         if autostart.supported():
             self.autostart_action.setChecked(autostart.is_enabled())
         self.autostart_action.toggled.connect(self._autostart_toggled)
+        self.companion_action = QAction("Phone companion", self, checkable=True)
+        self.companion_action.setToolTip("Let your paired Android phone use PARKER (off by default)")
+        self.pair_action = QAction("Pair phone…", self)
+        self.pair_action.triggered.connect(self.show_pairing)
         menu.addAction(self.voice_toggle)
         menu.addAction(clear)
         menu.addSeparator()
         menu.addAction(self.hotkey_action)
         menu.addAction(self.autostart_action)
+        menu.addSeparator()
+        menu.addAction(self.companion_action)
+        menu.addAction(self.pair_action)
         menu.addSeparator()
         menu.addAction(about)
         self.settings_button.setMenu(menu)
@@ -796,6 +806,17 @@ class MainWindow(QMainWindow):
         self._calendar_timer = QTimer(self)
         self._calendar_timer.setInterval(5 * 60_000)
         self._calendar_timer.timeout.connect(self.calendar_refresh_requested.emit)
+
+        # ---- phone companion (off unless the owner switched it on) ---------------
+        self.companion_server = None
+        self._companion_identity = None
+        self._make_companion_server = make_companion_server
+        self._companion_dir = companion_dir
+        self.companion_action.setChecked(str(self.settings.value("companion", "false")) == "true")
+        self.pair_action.setEnabled(self.companion_action.isChecked())
+        self.companion_action.toggled.connect(self._companion_toggled)
+        if self.companion_action.isChecked():
+            self._start_companion()
 
         self.set_state("loading")
         self.load_requested.emit()
@@ -1004,6 +1025,86 @@ class MainWindow(QMainWindow):
             if on else "PARKER won't start with Windows any more.",
         )
 
+    # ---- phone companion ----------------------------------------------------------
+    def _companion_parts(self):
+        """The companion, sharing this window's brain, stores, microphone model and voice."""
+        import threading
+
+        from backend.companion import Companion
+
+        voice_lock = threading.Lock()  # Whisper and Piper: one job at a time
+
+        def transcribe(audio):
+            if self.worker.listener is None:
+                raise RuntimeError("Speech recognition isn't ready on the laptop.")
+            with voice_lock:
+                return self.worker.listener.transcribe(audio)
+
+        def synthesize(text):
+            if self.worker.speaker is None:
+                raise RuntimeError("The voice isn't ready on the laptop.")
+            with voice_lock:
+                return self.worker.speaker.synthesize(text)
+
+        return Companion(self.assistant, reminders=self.reminders, calendar=self.calendar,
+                         transcribe=transcribe, synthesize=synthesize, now=self._now)
+
+    def _start_companion(self) -> bool:
+        try:
+            from backend.companion import IDENTITY_DIR, load_or_create_identity
+
+            self._companion_identity = load_or_create_identity(self._companion_dir or IDENTITY_DIR)
+            make = self._make_companion_server
+            if make is None:
+                from backend.companion_server import CompanionServer as make
+            self.companion_server = make(self._companion_parts(), self._companion_identity)
+            self.companion_server.start()
+        except Exception as err:
+            self.companion_server = None
+            self.chat.add("error", f"Phone companion couldn't start: {err}")
+            return False
+        return True
+
+    def _stop_companion(self) -> None:
+        if self.companion_server is not None:
+            self.companion_server.stop()
+            self.companion_server = None
+
+    def _companion_toggled(self, on: bool) -> None:
+        self.settings.setValue("companion", "true" if on else "false")
+        self.pair_action.setEnabled(on)
+        if on:
+            if self._start_companion():
+                self.chat.add("note", "Phone companion is on. Use Settings → Pair phone… to connect your phone.")
+        else:
+            self._stop_companion()
+            self.chat.add("note", "Phone companion is off. Your phone can't reach PARKER now.")
+
+    def show_pairing(self) -> PairingDialog | None:
+        from backend.companion import (
+            IDENTITY_DIR,
+            PORT,
+            local_addresses,
+            pairing_payload,
+            qr_matrix,
+            reset_pairing,
+        )
+
+        if self._companion_identity is None:
+            return None
+        hosts = local_addresses()
+
+        def reset():
+            self._stop_companion()
+            reset_pairing(self._companion_dir or IDENTITY_DIR)
+            self._start_companion()
+            self.chat.add("note", "All phones unpaired. Pair again with the new code.")
+
+        dialog = PairingDialog(qr_matrix(pairing_payload(self._companion_identity, PORT, hosts)),
+                               hosts, PORT, reset, self)
+        dialog.open()
+        return dialog
+
     def quit_app(self) -> None:
         self._quitting = True
         self.close()
@@ -1182,6 +1283,7 @@ class MainWindow(QMainWindow):
             return
         if self.hotkey is not None:
             self.hotkey.stop()
+        self._stop_companion()
         if self.tray is not None:
             self.tray.hide()
         for toast in list(self.toasts):

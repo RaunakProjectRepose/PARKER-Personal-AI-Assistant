@@ -2,6 +2,20 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## Unreleased – Milestone 5: phone companion (laptop side)
+
+### Added
+- HTTPS API for the PARKER Android app (`/api/status`, `/today`, `/message`, `/confirm`,
+  `/voice`, `/speak`), sharing the laptop's brain, memory, agenda, reminders and calendar.
+- Pairing by QR code (Settings → Pair phone…): a random 256-bit token plus the SHA-256 fingerprint
+  of a certificate generated on the laptop, which the phone pins. Requests without the token get
+  401; plain HTTP isn't served; "Unpair all phones" issues a new token.
+- Off by default ("Phone companion" in settings). Opening apps or files and deleting all memories
+  stay laptop-only; calendar additions from the phone need a confirmation.
+- Phone voice: the phone's WAV is resampled to 16 kHz for the laptop's Whisper; replies can be
+  spoken in PARKER's voice and played on the phone.
+- The assistant is now thread-safe for simultaneous laptop and phone use.
+
 ## Unreleased – Milestone 4: Google Calendar
 
 ### Added

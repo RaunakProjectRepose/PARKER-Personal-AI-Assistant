@@ -10,6 +10,8 @@ PARKER to remember are kept in `memory.py` and survive restarts.
 
 from __future__ import annotations
 
+import threading
+
 from datetime import datetime, timedelta
 from typing import Callable
 
@@ -38,6 +40,8 @@ class Assistant:
             raise ValueError("max_turns must be at least 1")
         # `generate` is swappable so tests can use a fake brain instead of Qwen.
         self._generate = generate
+        # The desktop app and the phone companion may ask from different threads.
+        self._lock = threading.RLock()
         self.max_turns = max_turns
         self.history: list[dict] = []
         self.memory = memory  # Long-term facts; None means no saved memory.
@@ -51,6 +55,10 @@ class Assistant:
         If the brain fails, the error is raised and the history is left
         unchanged, so a failed message is not half-remembered.
         """
+        with self._lock:
+            return self._ask(user_message)
+
+    def _ask(self, user_message: str) -> str:
         text = user_message.strip()
         facts = self.memory.texts() if self.memory else []
         reply = self._generate(
@@ -94,7 +102,8 @@ class Assistant:
 
     def reset(self) -> None:
         """Forget the current conversation."""
-        self.history.clear()
+        with self._lock:
+            self.history.clear()
 
     def _trim(self) -> None:
         # Each turn is two messages: the user's and PARKER's. Drop the oldest.

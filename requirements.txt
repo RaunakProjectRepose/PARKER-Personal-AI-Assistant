@@ -5,3 +5,6 @@ sounddevice>=0.5  # microphone recording
 PySide6-Essentials>=6.7  # LGPL-3.0; desktop app (Milestone 3)
 google-api-python-client>=2.100  # Apache-2.0; Google Calendar (optional)
 google-auth-oauthlib>=1.2  # Apache-2.0; Google sign-in for the calendar
+fastapi>=0.110  # MIT; phone companion API
+uvicorn>=0.29  # BSD-3-Clause; HTTPS server for the companion
+qrcode>=7.4  # BSD; pairing QR code

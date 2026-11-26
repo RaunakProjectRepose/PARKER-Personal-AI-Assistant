@@ -9,6 +9,9 @@ no subscriptions, and nothing you say leaves the machine.
 - **Reminders** — "remind me in 20 minutes to stretch", "remind me at 6 pm to call Mum",
   "remind me tomorrow at 9 to submit the assignment". Spoken aloud on time with a golden pop-up
   (Done / Snooze 10 min), even from the tray; missed ones are shown when PARKER next starts.
+- **Phone companion (laptop side)** — an encrypted, paired HTTPS API so the PARKER Android app
+  can chat, talk and see your day using the PARKER on your laptop. Off by default; see
+  [docs/ANDROID.md](docs/ANDROID.md).
 - **Google Calendar** — your Google events appear in the greeting, the Agenda drawer and answers
   like "what's on tomorrow?"; "add a meeting with Rahul to my calendar tomorrow at 3" adds one
   after you confirm. One-time setup: [docs/GOOGLE_CALENDAR.md](docs/GOOGLE_CALENDAR.md).
@@ -164,6 +167,8 @@ backend/
   files.py           # "find my …": searching file names in your own folders
   google_calendar.py # reading and adding Google Calendar events
   calendar_connect.py  # one-time Google sign-in: python -m backend.calendar_connect
+  companion.py       # phone companion: pairing, certificate, request handling
+  companion_server.py  # the HTTPS API the Android app talks to
   greeting.py        # startup greeting built from the agenda
   speech_input.py    # microphone recording + speech-to-text
   speech_output.py   # text-to-speech + playback
@@ -174,6 +179,7 @@ frontend/
   orb.py             # the animated status orb
   icons.py           # line icons drawn in code
   toast.py           # the reminder pop-up
+  pairing.py         # the "Pair phone" QR window
   hotkey.py          # the system-wide talk shortcut (Windows RegisterHotKey)
   autostart.py       # optional "Start with Windows"
 parker.pyw           # double-click launcher without a console window

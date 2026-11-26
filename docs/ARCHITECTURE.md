@@ -52,6 +52,14 @@ Windows message loop; when the shortcut is pressed it emits a Qt signal that is 
 window thread, which starts listening exactly as the mic button does. Nothing runs once the user
 chooses "Quit PARKER".
 
+## Phone companion
+
+`backend/companion.py` turns phone requests into PARKER replies using the same handlers as the
+terminal and the window, so all three behave alike. `backend/companion_server.py` exposes it as a
+small FastAPI app served by Uvicorn over HTTPS on a background thread (port 8765). The phone
+learns the address, token and certificate fingerprint from a QR code and pins the certificate, so
+no certificate authority or internet service is involved.
+
 ## Design decisions
 
 | Decision | Reason |
@@ -68,6 +76,9 @@ chooses "Quit PARKER".
 | Own agenda before Google Calendar | Works offline with no sign-in; calendar sync needs OAuth and belongs with M4 actions. |
 | PySide6 for the desktop app | Native Windows look and speed, mature, LGPL; the Python backend plugs in directly. |
 | Apps opened only from an allowlist (Start Menu, built-ins, folders, owner-added) | PARKER can't be talked into running arbitrary commands; it only does what a click could. |
+| Phone reaches the laptop's PARKER instead of running its own model | One brain and one memory; a 4B model is too heavy for most phones. |
+| Self-signed certificate pinned via QR, plus a bearer token | Encrypted and authenticated on any Wi-Fi with no third party; the QR is the only secret to share. |
+| Companion off by default; apps, files and "forget all" laptop-only | Nothing listens on the network unless chosen, and risky actions need the owner at the laptop. |
 | Google Calendar with the `calendar.events` scope, confirm before adding | Least permission that can add events; nothing is created without the owner's yes. |
 | Calendar cached 5 minutes, network only on the worker thread | The greeting and drawer stay instant and the window never waits on Google. |
 | File search by name only, in the owner's folders, on the worker thread | Private (contents never read), fast enough without an index, and the window never freezes. |
