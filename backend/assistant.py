@@ -32,6 +32,7 @@ class Assistant:
         memory: Memory | None = None,
         agenda: Agenda | None = None,
         now: Callable[[], datetime] = datetime.now,
+        calendar=None,
     ) -> None:
         if max_turns < 1:
             raise ValueError("max_turns must be at least 1")
@@ -41,6 +42,7 @@ class Assistant:
         self.history: list[dict] = []
         self.memory = memory  # Long-term facts; None means no saved memory.
         self.agenda = agenda  # Plans and events; None means no agenda.
+        self.calendar = calendar  # Google Calendar; None if not connected.
         self._now = now
 
     def ask(self, user_message: str) -> str:
@@ -79,6 +81,15 @@ class Assistant:
                 "Only mention plans and events listed here. You cannot add or change "
                 "them yourself: your owner uses /plan and /event for that."
             )
+        if self.calendar is not None:
+            today = now.date()
+            try:
+                self.calendar.refresh_if_stale()  # runs on the worker thread in the app
+                google = self.calendar.cached(today, today + timedelta(days=7))
+                described = "; ".join(e.as_agenda_event().describe(today) for e in google)
+                lines.append("Google Calendar, next 7 days: " + (described or "nothing scheduled."))
+            except Exception:
+                lines.append("Google Calendar: couldn't be reached just now, so say you can't check it.")
         return "\n".join(lines)
 
     def reset(self) -> None:

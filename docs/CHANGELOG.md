@@ -2,6 +2,21 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## Unreleased – Milestone 4: Google Calendar
+
+### Added
+- Google Calendar (permission: events only). The greeting, the Agenda drawer (marked "Google")
+  and PARKER's answers include the next 7 days of events, cached for 5 minutes and refreshed on
+  the worker thread.
+- "add … to my calendar …" / "schedule …" with days, times, "on the 3rd", "on 3 December",
+  "on 2/1" and durations ("for an hour", "for 30 minutes"); all-day when no time is given.
+  PARKER shows the event and adds it only after you confirm. The model is told it cannot add
+  events itself.
+- `python -m backend.calendar_connect` for the one-time Google sign-in, and
+  `docs/GOOGLE_CALENDAR.md` with the Google Cloud setup.
+- `.gitignore` now ignores the whole `memory/` folder, `credentials.json`, `client_secret*.json`
+  and token files, so Google keys can never be committed (checked by a test).
+
 ## Unreleased – Milestone 4: finding files
 
 ### Added

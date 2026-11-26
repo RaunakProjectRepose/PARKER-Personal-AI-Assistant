@@ -32,6 +32,7 @@ class Worker(QObject):
     replied = Signal(str)  # PARKER's answer from the model
     failed = Signal(str)  # a readable error message
     files_found = Signal(str, list)  # the query, a list of FoundFile
+    calendar_updated = Signal()  # Google Calendar cache refreshed or changed
 
     def __init__(
         self,
@@ -39,10 +40,12 @@ class Worker(QObject):
         make_speaker: Callable[[], object] | None = default_speaker,
         make_listener: Callable[[Callable], object] | None = default_listener,
         finder=None,
+        calendar=None,
     ) -> None:
         super().__init__()
         self.assistant = assistant
         self.finder = finder
+        self.calendar = calendar
         self._make_speaker = make_speaker
         self._make_listener = make_listener
         self.speaker = None
@@ -69,6 +72,11 @@ class Worker(QObject):
                 self.listener = self._make_listener(self._wait_for_stop)
             except Exception as err:
                 notes.append(f"Microphone unavailable: {err}")
+        if self.calendar is not None:
+            try:
+                self.calendar.refresh()  # so the greeting can include today's events
+            except Exception as err:
+                notes.append(f"Google Calendar unavailable: {err}")
         self.status_changed.emit("idle")
         self.loaded.emit(self.speaker is not None, self.listener is not None, " ".join(notes))
 
@@ -95,6 +103,36 @@ class Worker(QObject):
             results = []
         self.status_changed.emit("idle")
         self.files_found.emit(query, results)
+
+    @Slot()
+    def refresh_calendar(self) -> None:
+        if self.calendar is None:
+            return
+        try:
+            self.calendar.refresh()
+        except Exception:
+            return  # offline for a moment: keep the old events, try again later
+        self.calendar_updated.emit()
+
+    @Slot(str, str, str, bool)
+    def add_calendar_event(self, title: str, start: str, end: str, all_day: bool) -> None:
+        """Create an event the owner has already confirmed."""
+        from datetime import datetime
+
+        from backend.google_calendar import EventRequest
+
+        request = EventRequest(title, datetime.fromisoformat(start), datetime.fromisoformat(end), all_day)
+        self.status_changed.emit("thinking")
+        try:
+            self.calendar.add(title, request.start, request.end, all_day)
+        except Exception as err:
+            self.failed.emit(str(err))
+            self.status_changed.emit("idle")
+            return
+        self.calendar_updated.emit()
+        text = f"Added to your calendar: {request.describe()}."
+        self.replied.emit(text)
+        self._speak(text)
 
     @Slot(str)
     def say(self, text: str) -> None:

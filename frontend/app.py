@@ -86,6 +86,10 @@ from backend.main import (
     handle_reminders,
     FileResults,
     handle_file_pick,
+    connect_calendar_if_set_up,
+    events_today,
+    is_calendar_request,
+    parse_calendar_request,
 )
 from backend.files import FileFinder, FoundFile, parse_find_request, summary
 from backend.reminders import Reminders, announcement
@@ -343,9 +347,11 @@ class MemoriesPanel(QWidget):
 class AgendaPanel(QWidget):
     changed = Signal()
 
-    def __init__(self, agenda: Agenda | None, today=date.today, reminders=None, now=datetime.now) -> None:
+    def __init__(self, agenda: Agenda | None, today=date.today, reminders=None, now=datetime.now,
+                 calendar=None) -> None:
         super().__init__()
         self.agenda = agenda
+        self.calendar = calendar
         self.reminders = reminders
         self._today = today
         self._now = now
@@ -422,9 +428,16 @@ class AgendaPanel(QWidget):
                 item.setCheckState(Qt.CheckState.Unchecked)
                 item.setToolTip("Tick when done")
                 self.plans.addItem(item)
-            for event in self.agenda.events_between(today, today + timedelta(days=7)):
-                item = QListWidgetItem(f"{event.text}\n{event.when(today)}")
-                item.setData(Qt.ItemDataRole.UserRole, event.id)
+            upcoming = [(e, False) for e in self.agenda.events_between(today, today + timedelta(days=7))]
+            if self.calendar is not None:
+                upcoming += [(e.as_agenda_event(), True)
+                             for e in self.calendar.cached(today, today + timedelta(days=7))]
+            upcoming.sort(key=lambda pair: (pair[0].day, pair[0].time is not None, pair[0].time or ""))
+            for event, from_google in upcoming:
+                when = event.when(today) + ("  ·  Google" if from_google else "")
+                item = QListWidgetItem(f"{event.text}\n{when}")
+                # Google events can't be removed from here (only PARKER's own).
+                item.setData(Qt.ItemDataRole.UserRole, None if from_google else event.id)
                 self.events.addItem(item)
         self.plans.blockSignals(False)
 
@@ -472,7 +485,11 @@ class AgendaPanel(QWidget):
 
     def delete_selected_event(self) -> None:
         for item in self.events.selectedItems():
-            self.agenda.delete_event(item.data(Qt.ItemDataRole.UserRole))
+            event_id = item.data(Qt.ItemDataRole.UserRole)
+            if event_id is None:
+                QMessageBox.information(self, "PARKER", "Google Calendar events are changed in Google Calendar.")
+                continue
+            self.agenda.delete_event(event_id)
         self.refresh()
         self.changed.emit()
 
@@ -541,6 +558,8 @@ class MainWindow(QMainWindow):
     listen_requested = Signal()
     load_requested = Signal()
     find_requested = Signal(str)
+    add_event_requested = Signal(str, str, str, bool)
+    calendar_refresh_requested = Signal()
 
     def __init__(
         self,
@@ -560,6 +579,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__()
         self.assistant = assistant
+        self.calendar = getattr(assistant, "calendar", None)
         self.finder = finder
         self.file_results = FileResults()
         self.apps = apps
@@ -664,7 +684,7 @@ class MainWindow(QMainWindow):
         self.memories_panel = MemoriesPanel(assistant.memory)
         self.agenda_panel = AgendaPanel(
             assistant.agenda, today=lambda: self._now().date(), reminders=reminders,
-            now=lambda: self._now(),
+            now=lambda: self._now(), calendar=self.calendar,
         )
         self.drawer = Drawer({"Agenda": self.agenda_panel, "Memories": self.memories_panel})
         outer.addWidget(self.drawer)
@@ -703,7 +723,8 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+2"), self, activated=lambda: self.toggle_drawer("Memories"))
 
         # ---- worker: slow work happens off the window thread -------------------
-        self.worker = Worker(assistant, make_speaker, make_listener, finder=finder)
+        self.worker = Worker(assistant, make_speaker, make_listener, finder=finder,
+                             calendar=self.calendar)
         self._thread = None
         if threaded:
             self._thread = QThread(self)
@@ -714,6 +735,8 @@ class MainWindow(QMainWindow):
         self.listen_requested.connect(self.worker.listen)
         self.load_requested.connect(self.worker.load)
         self.find_requested.connect(self.worker.find_files)
+        self.add_event_requested.connect(self.worker.add_calendar_event)
+        self.calendar_refresh_requested.connect(self.worker.refresh_calendar)
         # Everything the worker reports must run on the window's thread: Qt
         # widgets may only be created and changed there. QueuedConnection plus
         # slots on this window (not lambdas) guarantees that.
@@ -726,6 +749,7 @@ class MainWindow(QMainWindow):
         self.worker.replied.connect(self._replied, queued)
         self.worker.failed.connect(self._failed, queued)
         self.worker.files_found.connect(self._files_found, queued)
+        self.worker.calendar_updated.connect(self.agenda_panel.refresh, queued)
         self._recording_limit = QTimer(self)
         self._recording_limit.setSingleShot(True)
         # stop_listening is thread-safe, so call it directly from this thread; a
@@ -768,6 +792,10 @@ class MainWindow(QMainWindow):
         self._reminder_timer = QTimer(self)
         self._reminder_timer.setInterval(5_000)
         self._reminder_timer.timeout.connect(self.check_reminders)
+        # Google Calendar is re-read every 5 minutes on the worker thread.
+        self._calendar_timer = QTimer(self)
+        self._calendar_timer.setInterval(5 * 60_000)
+        self._calendar_timer.timeout.connect(self.calendar_refresh_requested.emit)
 
         self.set_state("loading")
         self.load_requested.emit()
@@ -813,6 +841,9 @@ class MainWindow(QMainWindow):
         self.greet()
         self.check_reminders()  # anything missed while PARKER was closed
         self._reminder_timer.start()
+        if self.calendar is not None:
+            self.agenda_panel.refresh()
+            self._calendar_timer.start()
 
     def greet(self) -> None:
         agenda = self.assistant.agenda
@@ -820,7 +851,8 @@ class MainWindow(QMainWindow):
             text = f"Good {time_of_day(self._now())}, {OWNER_NAME}. What shall we tackle today?"
         else:
             today = self._now().date()
-            text = build_greeting(OWNER_NAME, agenda.open_plans(), agenda.events_on(today), self._now())
+            events = events_today(agenda, self.calendar, today)
+            text = build_greeting(OWNER_NAME, agenda.open_plans(), events, self._now())
         self.chat.add("parker", text)
         if not self.start_hidden:  # stay quiet when Windows starts PARKER at login
             self.say_requested.emit(text)
@@ -1025,6 +1057,21 @@ class MainWindow(QMainWindow):
         if not on:
             self.worker.stop_speaking()
 
+    def add_to_calendar(self, text: str) -> None:
+        """Show the event, ask, and only then add it (on the worker thread)."""
+        request = parse_calendar_request(text, self.calendar, self._print, self._now())
+        if request is None:
+            return
+        answer = QMessageBox.question(
+            self, "Add to Google Calendar?", f"Add {request.describe()} to your Google Calendar?"
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self.chat.add("note", "Okay, I haven't added it.")
+            return
+        self.add_event_requested.emit(
+            request.title, request.start.isoformat(), request.end.isoformat(), request.all_day
+        )
+
     @Slot(str, list)
     def _files_found(self, query: str, results: list) -> None:
         self.file_results.query, self.file_results.results = query, results
@@ -1085,6 +1132,9 @@ class MainWindow(QMainWindow):
             return
         if handle_reminders(text, self.reminders, self._say, self._print, self._now()):
             self.agenda_panel.refresh()
+            return
+        if is_calendar_request(text, self._now()):
+            self.add_to_calendar(text)
             return
         if handle_file_pick(text, self.finder, self.file_results, self._say, self._print):
             return
@@ -1173,9 +1223,10 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         reminders = None
     finder = FileFinder()
+    calendar = connect_calendar_if_set_up()
 
     window = MainWindow(
-        Assistant(memory=memory, agenda=agenda),
+        Assistant(memory=memory, agenda=agenda, calendar=calendar),
         make_speaker=None if args.no_voice else default_speaker,
         make_listener=None if args.no_voice else default_listener,
         start_hidden=args.background,

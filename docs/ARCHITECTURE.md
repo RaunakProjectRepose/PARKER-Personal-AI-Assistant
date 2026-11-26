@@ -68,6 +68,8 @@ chooses "Quit PARKER".
 | Own agenda before Google Calendar | Works offline with no sign-in; calendar sync needs OAuth and belongs with M4 actions. |
 | PySide6 for the desktop app | Native Windows look and speed, mature, LGPL; the Python backend plugs in directly. |
 | Apps opened only from an allowlist (Start Menu, built-ins, folders, owner-added) | PARKER can't be talked into running arbitrary commands; it only does what a click could. |
+| Google Calendar with the `calendar.events` scope, confirm before adding | Least permission that can add events; nothing is created without the owner's yes. |
+| Calendar cached 5 minutes, network only on the worker thread | The greeting and drawer stay instant and the window never waits on Google. |
 | File search by name only, in the owner's folders, on the worker thread | Private (contents never read), fast enough without an index, and the window never freezes. |
 | Reminder times parsed in code, fired by a window-thread timer | The time is exactly what was said, and reminders fire even while the window is hidden. |
 | "open …" recognised in code, unmatched requests go to the model | Reliable opening, and phrases like "open the pod bay doors" still get a normal answer. |

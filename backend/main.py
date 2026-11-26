@@ -19,6 +19,13 @@ from datetime import date, datetime, timedelta
 from backend.agenda import Agenda, AgendaError, parse_event
 from backend.apps import AppError, AppLauncher, parse_open_request
 from backend.files import FileFinder, FoundFile, parse_find_request, parse_pick, summary
+from backend.google_calendar import (
+    TOKEN_PATH,
+    CalendarError,
+    EventRequest,
+    GoogleCalendar,
+    parse_event_request,
+)
 from backend.reminders import ReminderError, Reminders, announcement, parse_reminder
 from backend.assistant import Assistant
 from backend.brain import MODEL, OWNER_NAME, BrainError
@@ -47,6 +54,8 @@ HELP_TEXT = """Commands:
   find my ...          e.g. "find my AIML303 notes", "where is my resume?" (file names only)
   open the first one   after a search: open a result ("open number 2", "open it",
                        "show it in the folder")
+  add <event> to my calendar <when>   e.g. "add a meeting with Rahul to my calendar
+                       tomorrow at 3" (Google Calendar; PARKER asks before adding)
   open <app or folder> e.g. "open VS Code", "open my Downloads" (typed or spoken)
   /apps [search]       list apps PARKER can open
   /app add <name> = <path or web address>   teach PARKER a new one
@@ -180,6 +189,66 @@ def announce_due_reminders(reminders: Reminders | None, say, now: datetime) -> i
     for reminder in fired:
         say(announcement(reminder, now))
     return len(fired)
+
+
+NOT_CONNECTED = (
+    "Google Calendar isn't connected yet. Follow docs/GOOGLE_CALENDAR.md, then run: "
+    "python -m backend.calendar_connect"
+)
+
+
+def connect_calendar_if_set_up(token_path=TOKEN_PATH) -> GoogleCalendar | None:
+    """A GoogleCalendar if the owner has connected one, else None (no network here)."""
+    return GoogleCalendar() if token_path.exists() else None
+
+
+def parse_calendar_request(message: str, calendar, print_fn, now: datetime) -> EventRequest | None:
+    """The event to add, or None. Problems (missing time, not connected) are printed,
+    and the message counts as handled: check `handled` with is_calendar_request."""
+    try:
+        request = parse_event_request(message, now)
+    except CalendarError as err:
+        print_fn(f"PARKER: {err}\n")
+        return None
+    if request is not None and calendar is None:
+        print_fn(f"PARKER: {NOT_CONNECTED}\n")
+        return None
+    return request
+
+
+def is_calendar_request(message: str, now: datetime) -> bool:
+    try:
+        return parse_event_request(message, now) is not None
+    except CalendarError:
+        return True
+
+
+def handle_calendar(message: str, calendar, say, print_fn, confirm, now: datetime) -> bool:
+    """"add X to my calendar <when>": show it, ask, then add. True if handled."""
+    if not is_calendar_request(message, now):
+        return False
+    request = parse_calendar_request(message, calendar, print_fn, now)
+    if request is None:
+        return True
+    answer = confirm(f"Add {request.describe()} to Google Calendar? Type yes: ")
+    if answer.strip().lower() not in ("yes", "y"):
+        print_fn("PARKER: Okay, I haven't added it.\n")
+        return True
+    try:
+        calendar.add(request.title, request.start, request.end, request.all_day)
+    except CalendarError as err:
+        print_fn(f"PARKER: {err}\n")
+        return True
+    say(f"Added to your calendar: {request.describe()}.")
+    return True
+
+
+def events_today(agenda, calendar, today) -> list:
+    """PARKER's own events plus Google Calendar ones (from the cache), all-day first."""
+    events = list(agenda.events_on(today)) if agenda is not None else []
+    if calendar is not None:
+        events += [e.as_agenda_event() for e in calendar.cached(today, today)]
+    return sorted(events, key=lambda e: (e.time is not None, e.time or ""))
 
 
 class FileResults:
@@ -365,6 +434,7 @@ def run(
     apps: AppLauncher | None = None,
     reminders: Reminders | None = None,
     finder: FileFinder | None = None,
+    calendar=None,
 ) -> None:
     """Read messages, print (and optionally speak) PARKER's replies, until the user quits.
 
@@ -400,7 +470,13 @@ def run(
     agenda = assistant.agenda
     if agenda is not None:
         today = now().date()
-        say(build_greeting(OWNER_NAME, agenda.open_plans(), agenda.events_on(today), now()))
+        calendar = calendar if calendar is not None else getattr(assistant, "calendar", None)
+        if calendar is not None:
+            try:
+                calendar.refresh_if_stale()
+            except Exception as err:
+                print_fn(f"[calendar] {err}\n")
+        say(build_greeting(OWNER_NAME, agenda.open_plans(), events_today(agenda, calendar, today), now()))
 
     file_results = FileResults()
     while True:
@@ -444,6 +520,8 @@ def run(
             if handle_agenda(message, assistant.agenda, say, print_fn, now().date()):
                 continue
             if handle_reminders(message, reminders, say, print_fn, now()):
+                continue
+            if handle_calendar(message, calendar, say, print_fn, input_fn, now()):
                 continue
             if handle_files(message, finder, file_results, say, print_fn):
                 continue
@@ -528,16 +606,18 @@ def main(argv: list[str] | None = None) -> None:
     except Exception as err:
         print(f"[reminders error] {err}\nContinuing without reminders.\n")
     finder = FileFinder()
+    calendar = connect_calendar_if_set_up()
 
     try:
         run(
-            Assistant(memory=memory, agenda=agenda),
+            Assistant(memory=memory, agenda=agenda, calendar=calendar),
             speak_fn=speak_fn,
             listen_fn=listen_fn,
             timing_fn=timing_fn,
             apps=apps,
             reminders=reminders,
             finder=finder,
+            calendar=calendar,
         )
     finally:
         for store in (memory, agenda, apps, reminders, speaker):

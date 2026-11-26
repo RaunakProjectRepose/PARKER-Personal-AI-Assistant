@@ -62,7 +62,10 @@ SYSTEM_PROMPT = (
     "to remind them, suggest they say it in that form. "
     "PARKER's software also finds files by name when your owner says \"find "
     "my\" or \"where is my\" followed by what they want; you cannot see or "
-    "search their files yourself, so never guess file names or locations."
+    "search their files yourself, so never guess file names or locations. "
+    "To add something to their Google Calendar they say \"add ... to my "
+    "calendar\" with a day and time; PARKER confirms with them first. You cannot "
+    "add calendar events yourself, so never claim you have."
 )
 
 

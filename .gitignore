@@ -21,6 +21,10 @@ voices/
 *.safetensors
 
 # Private data
+memory/
+credentials.json
+client_secret*.json
+*token*.json
 memory/*.db
 memory/*.sqlite
 memory/*.sqlite3

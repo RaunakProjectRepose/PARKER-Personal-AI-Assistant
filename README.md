@@ -9,6 +9,9 @@ no subscriptions, and nothing you say leaves the machine.
 - **Reminders** — "remind me in 20 minutes to stretch", "remind me at 6 pm to call Mum",
   "remind me tomorrow at 9 to submit the assignment". Spoken aloud on time with a golden pop-up
   (Done / Snooze 10 min), even from the tray; missed ones are shown when PARKER next starts.
+- **Google Calendar** — your Google events appear in the greeting, the Agenda drawer and answers
+  like "what's on tomorrow?"; "add a meeting with Rahul to my calendar tomorrow at 3" adds one
+  after you confirm. One-time setup: [docs/GOOGLE_CALENDAR.md](docs/GOOGLE_CALENDAR.md).
 - **Finds files** — "find my AIML303 notes", "where is my resume?", "find my latest screenshot".
   Searches file names (never contents) in your own folders, then "open the first one".
 - **Opens apps and folders** — "open VS Code", "launch Chrome", "open my Downloads". Only Start
@@ -108,6 +111,7 @@ In the chat:
 | `/events`, `/cancel <id>` | List the next 7 days, delete an event |
 | `remind me …` (typed or spoken) | e.g. "remind me in 20 minutes to stretch", "remind me on Friday at 10 am about the hackathon" |
 | `/reminders`, `/reminder cancel <id>` | List upcoming reminders, cancel one (or select it in the Agenda drawer and press Delete) |
+| `add <event> to my calendar <when>` | e.g. "… tomorrow at 3", "… on Friday at 7 am for an hour", "… on the 3rd" (Google Calendar; asks first) |
 | `find my …` / `where is my …` (typed or spoken) | Search file names in Documents, Downloads, Desktop, Pictures, Music, Videos (incl. OneDrive) |
 | `open the first one`, `open number 2`, `open it`, `show it in the folder` | After a search; or click a result |
 | `open <app or folder>` (typed or spoken) | e.g. "open VS Code", "open my Downloads folder" |
@@ -158,6 +162,8 @@ backend/
   apps.py            # opening apps and folders by name
   reminders.py       # "remind me …": understanding, storing and firing reminders
   files.py           # "find my …": searching file names in your own folders
+  google_calendar.py # reading and adding Google Calendar events
+  calendar_connect.py  # one-time Google sign-in: python -m backend.calendar_connect
   greeting.py        # startup greeting built from the agenda
   speech_input.py    # microphone recording + speech-to-text
   speech_output.py   # text-to-speech + playback

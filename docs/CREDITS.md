@@ -22,6 +22,12 @@ Voice files are downloaded locally into `voices/` and are not stored in this rep
 [Whisper](https://github.com/openai/whisper) `small.en` model (MIT), entirely on this laptop.
 Microphone access via [python-sounddevice](https://github.com/spatialaudio/python-sounddevice) (MIT).
 
+## Google Calendar
+
+[google-api-python-client](https://github.com/googleapis/google-api-python-client) and
+[google-auth-oauthlib](https://github.com/googleapis/google-auth-library-python-oauthlib),
+licensed Apache-2.0.
+
 ## Desktop app
 
 [Qt for Python (PySide6)](https://doc.qt.io/qtforpython-6/), licensed LGPL-3.0, used unmodified
