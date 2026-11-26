@@ -2,6 +2,19 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## Unreleased – Milestone 5: away from home (Android app 0.2.0)
+
+### Added
+- Use PARKER from anywhere through Tailscale: the pairing code includes the laptop's Tailscale
+  address after the home ones, and the app falls back to it automatically.
+- The app reconnects by itself when an address stops answering (e.g. leaving home), retrying only
+  failures to connect, so a message that reached PARKER is never sent twice.
+- `docs/ANDROID.md`: Tailscale setup with a firewall rule limited to Tailscale addresses.
+
+### Fixed (0.1.1)
+- Android 17 blocked the app from the home network: it now asks for "Nearby devices"
+  (`ACCESS_LOCAL_NETWORK`).
+
 ## Unreleased – Milestone 5: Android app 0.1
 
 ### Added

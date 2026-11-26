@@ -108,15 +108,30 @@ class ParkerClient(private val pairing: Pairing, private val http: OkHttpClient 
     // ---- plumbing ------------------------------------------------------------
     private fun url(path: String) = (baseUrl ?: connect()) + path
 
-    private fun get(path: String): String = call(Request.Builder().url(url(path))).decodeToString()
+    /**
+     * Walked out of the house mid-conversation? The home Wi-Fi address stops
+     * answering, so find the laptop again (e.g. via Tailscale) and retry once.
+     * Only for failures to *connect*: a request that reached PARKER is never sent twice.
+     */
+    private fun <T> withReconnect(block: () -> T): T = try {
+        block()
+    } catch (e: IOException) {
+        if (baseUrl == null || !couldNotConnect(e)) throw e
+        baseUrl = null
+        block()
+    }
+
+    private fun get(path: String): String = withReconnect { call(Request.Builder().url(url(path))).decodeToString() }
 
     private fun post(path: String, body: String) = post(path, body.toByteArray(), "application/json")
 
-    private fun post(path: String, body: ByteArray, type: String): String =
+    private fun post(path: String, body: ByteArray, type: String): String = withReconnect {
         call(Request.Builder().url(url(path)).post(body.toRequestBody(type.toMediaType()))).decodeToString()
+    }
 
-    private fun postBytes(path: String, body: String): ByteArray =
+    private fun postBytes(path: String, body: String): ByteArray = withReconnect {
         call(Request.Builder().url(url(path)).post(body.toRequestBody("application/json".toMediaType())))
+    }
 
     private fun call(builder: Request.Builder, base: String? = null): ByteArray {
         val request = builder.header("Authorization", "Bearer ${pairing.token}").build()
@@ -131,6 +146,15 @@ class ParkerClient(private val pairing: Pairing, private val http: OkHttpClient 
     }
 
     companion object {
+        /** True if the laptop couldn't be reached at all (so retrying elsewhere is safe). */
+        fun couldNotConnect(e: IOException): Boolean = when (e) {
+            is ParkerException -> false
+            is java.net.ConnectException, is java.net.NoRouteToHostException,
+            is java.net.UnknownHostException -> true
+            is java.net.SocketTimeoutException -> e.message?.contains("connect", ignoreCase = true) == true
+            else -> e.cause is java.net.ConnectException
+        }
+
         fun parseReply(body: String): Reply {
             val j = JSONObject(body)
             val list = j.optJSONArray("messages")

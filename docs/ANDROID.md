@@ -10,11 +10,11 @@ it: it chats, records your voice, plays PARKER's replies and shows your day, all
 |---|---|
 | Laptop side: companion API, pairing, encryption | Done (Milestone 5, phase 1) |
 | Android app (Kotlin, Jetpack Compose) | Version 0.1: pairing, chat, push-to-talk, spoken replies, Today |
-| Using it away from home (Tailscale) | Phase 3 |
+| Using it away from home (Tailscale) | Done (app 0.2.0) |
 
 ## Installing the app
 
-**Option A: the ready-made file.** Copy `PARKER-0.1.1.apk` to the phone, open it, and allow
+**Option A: the ready-made file.** Copy `PARKER-0.2.0.apk` to the phone, open it, and allow
 "Install unknown apps" for the app you opened it with (Files or Chrome) when Android asks. It is a
 debug build signed on the build machine; Android may show a Play Protect warning for apps not from
 the Play Store; choose "Install anyway".
@@ -48,6 +48,31 @@ The project targets Android 17 (API 37) and runs on Android 8 and newer.
 
 Keep the QR code private: it contains the pairing token. **Unpair all phones** in the same window
 issues a new one, and phones paired earlier stop working.
+
+## Using PARKER away from home (Tailscale)
+
+[Tailscale](https://tailscale.com) (free for personal use) joins your laptop and phone into a
+private, encrypted network that only your own devices can enter, so the phone reaches the laptop
+from anywhere without opening anything to the internet. PARKER's own encryption and pairing still
+apply on top.
+
+1. **Laptop:** install Tailscale from <https://tailscale.com/download/windows> and sign in.
+2. **Phone:** install **Tailscale** from the Play Store, sign in with the **same account**, and
+   switch it on. Both devices now have a `100.x.y.z` address.
+3. **Laptop, PowerShell as Administrator:** allow PARKER's port, but only from Tailscale devices:
+
+   ```powershell
+   New-NetFirewallRule -DisplayName "PARKER companion (Tailscale)" -Direction Inbound -Protocol TCP -LocalPort 8765 -RemoteAddress 100.64.0.0/10 -Action Allow -Profile Any
+   ```
+
+4. **Re-pair once** so the code includes the Tailscale address: restart PARKER, open
+   **Settings → Pair phone…** (it should list your `192.168…` address and a `100.…` address), then
+   on the phone **Today → Unpair this phone → Pair with laptop**.
+
+At home the app uses the Wi-Fi address; away, it falls back to the Tailscale address
+automatically, and if you leave home mid-conversation it reconnects by itself (a message that
+reached PARKER is never sent twice). The laptop must be on, with PARKER running, and Tailscale on
+on both devices.
 
 ## If the phone can't connect
 

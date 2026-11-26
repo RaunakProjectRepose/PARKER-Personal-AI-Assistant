@@ -112,3 +112,34 @@ class PinningTest {
         assertNull(r.confirm)
     }
 }
+
+class AwayFromHomeTest {
+    private lateinit var server: MockWebServer
+    private val cert = HeldCertificate.Builder().commonName("PARKER companion").build()
+    private val token = "secret-token-" + "x".repeat(30)
+    private fun fp() = MessageDigest.getInstance("SHA-256").digest(cert.certificate.encoded).joinToString("") { "%02x".format(it) }
+
+    @Before fun start() {
+        server = MockWebServer()
+        server.useHttps(HandshakeCertificates.Builder().heldCertificate(cert).build().sslSocketFactory(), false)
+        server.start(java.net.InetAddress.getByName("127.0.0.1"), 0)
+    }
+
+    @After fun stop() = server.shutdown()
+
+    @Test fun skipsTheHomeAddressWhenAwayAndUsesTheNextOne() {
+        // 127.0.0.2 stands in for the home Wi-Fi address that no longer answers;
+        // 127.0.0.1 for the laptop's Tailscale address.
+        server.enqueue(MockResponse().setBody("""{"app":"parker"}"""))
+        val client = ParkerClient(Pairing(listOf("127.0.0.2", "127.0.0.1"), server.port, token, fp(), "Raunak"))
+        assertEquals("https://127.0.0.1:${server.port}", client.connect())
+    }
+
+    @Test fun onlyConnectionFailuresAreRetried() {
+        assertTrue(ParkerClient.couldNotConnect(java.net.ConnectException("refused")))
+        assertTrue(ParkerClient.couldNotConnect(java.net.SocketTimeoutException("connect timed out")))
+        // The message reached PARKER but the reply was slow: never send it twice.
+        assertEquals(false, ParkerClient.couldNotConnect(java.net.SocketTimeoutException("timeout")))
+        assertEquals(false, ParkerClient.couldNotConnect(ParkerException("isn't paired")))
+    }
+}
