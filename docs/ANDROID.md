@@ -9,8 +9,36 @@ it: it chats, records your voice, plays PARKER's replies and shows your day, all
 | Part | Status |
 |---|---|
 | Laptop side: companion API, pairing, encryption | Done (Milestone 5, phase 1) |
-| Android app (Kotlin, Jetpack Compose) | Phase 2: next |
+| Android app (Kotlin, Jetpack Compose) | Version 0.1: pairing, chat, push-to-talk, spoken replies, Today |
 | Using it away from home (Tailscale) | Phase 3 |
+
+## Installing the app
+
+**Option A: the ready-made file.** Copy `PARKER-0.1.0.apk` to the phone, open it, and allow
+"Install unknown apps" for the app you opened it with (Files or Chrome) when Android asks. It is a
+debug build signed on the build machine; Android may show a Play Protect warning for apps not from
+the Play Store; choose "Install anyway".
+
+**Option B: build it yourself in Android Studio.**
+
+1. Android Studio → **Open** → the `android` folder of this repository. Let it sync (first time
+   downloads a lot).
+2. On the phone: **Settings → About phone → tap "Build number" 7 times** (unlocks Developer
+   options), then **Settings → System → Developer options → USB debugging: on**.
+3. Connect the phone by USB and allow debugging when it asks.
+4. In Android Studio pick the phone at the top and press **Run ▶**.
+
+The project targets Android 17 (API 37) and runs on Android 8 and newer.
+
+## Using the app
+
+1. Laptop: PARKER running, **Settings → Phone companion** on.
+2. Phone on the same Wi-Fi: open PARKER → **Pair with laptop** → scan the code from
+   **Settings → Pair phone…** (allow the camera).
+3. Type, or tap the golden mic, speak, and tap ✓. PARKER answers aloud (switch off "Speak
+   replies" in **Today** if you prefer silence). Tap ■ to stop it speaking.
+4. **Today** shows the greeting, plans, the next 7 days (incl. Google Calendar), reminders and
+   memories, and has **Unpair this phone**.
 
 ## Switching it on (laptop)
 

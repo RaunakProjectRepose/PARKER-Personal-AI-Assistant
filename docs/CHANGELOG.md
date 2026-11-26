@@ -2,6 +2,17 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## Unreleased – Milestone 5: Android app 0.1
+
+### Added
+- `android/`: Kotlin + Jetpack Compose app (targets Android 17 / API 37, runs on Android 8+) in the
+  same golden theme: pair by scanning the laptop's QR code, chat, push-to-talk (16 kHz WAV to the
+  laptop's Whisper), spoken replies in PARKER's voice, calendar confirmations, and a Today sheet
+  with plans, the next 7 days, reminders and memories.
+- Certificate pinning: the app trusts only the SHA-256 fingerprint from the QR code and sends
+  nothing, not even the token, to any other server. Pairing stays in app-private storage.
+- JVM unit tests for pairing, the WAV format and pinning (against a local TLS server).
+
 ## Unreleased – Milestone 5: phone companion (laptop side)
 
 ### Added
