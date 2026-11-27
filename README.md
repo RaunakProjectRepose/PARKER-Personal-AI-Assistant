@@ -33,6 +33,11 @@ no subscriptions, and nothing you say leaves the machine.
 - **Hands-free conversation** — press once and just talk: PARKER notices when you pause,
   answers, and listens again, until you say "that's all", stay quiet for a few seconds or press
   **Esc**. Switch it off in settings to go back to press-to-start, press-to-finish.
+- **Wake word (opt-in)** — switch on "Wake word: Hey Parker" in settings and just say
+  "Hey Parker" (or "Hey Parker, what's on today?"). A voice detector ignores silence, and only
+  short bursts of speech are checked, on the laptop, by a small Whisper model; anything that
+  isn't PARKER's name is dropped at once. The status line shows "SAY HEY PARKER" while it's
+  waiting, and it never listens while PARKER is speaking.
 - **Local brain** — Qwen 3.5 4B through Ollama, running fully on the GPU (~0.9 s per reply).
 - **Spoken replies** — Piper TTS with a British-English voice (`en_GB-alba-medium`).
 - **Conversation memory** — remembers the last ten exchanges within a session; `/reset` clears it.

@@ -25,6 +25,7 @@ from datetime import date, datetime, timedelta
 from PySide6.QtCore import (
     QDate,
     QEasingCurve,
+    QObject,
     QPointF,
     QPropertyAnimation,
     QSettings,
@@ -112,6 +113,19 @@ from frontend.worker import Worker, default_listener, default_speaker
 
 MAX_RECORDING_MS = 30_000  # Recording always stops by itself after 30 s.
 FOLLOW_UP_DELAY_MS = 350  # pause after PARKER speaks before listening again
+
+
+def default_wake_detector(on_wake, on_error):
+    from backend.wake_word import WakeWordDetector
+
+    return WakeWordDetector(on_wake, on_error=on_error)
+
+
+class WakeBridge(QObject):
+    """Carries the wake word detector's news (from its own thread) to the window."""
+
+    woke = Signal(str)  # what was said after "Hey Parker" ('' if nothing)
+    failed = Signal(str)
 BUBBLE_MAX_WIDTH = 560
 COLUMN_WIDTH = 760  # the chat and message bar share one centred reading column
 DRAWER_WIDTH = 360
@@ -583,6 +597,7 @@ class MainWindow(QMainWindow):
         finder: FileFinder | None = None,
         make_companion_server=None,
         companion_dir=None,
+        make_wake_detector=None,
     ) -> None:
         super().__init__()
         self.assistant = assistant
@@ -605,6 +620,12 @@ class MainWindow(QMainWindow):
         self._follow_up = False  # the current recording was started by PARKER, not you
         self._listen_queued = False  # a recording has been asked for but not started
         self._discard_heard = False  # Esc while listening: ignore what was recorded
+        # Wake word ("Hey Parker"): off by default, detector built on first use.
+        self._make_wake_detector = make_wake_detector
+        self.wake_detector = None
+        self._wake_bridge = WakeBridge(self)
+        self._wake_bridge.woke.connect(self._woke, Qt.ConnectionType.QueuedConnection)
+        self._wake_bridge.failed.connect(self._wake_failed, Qt.ConnectionType.QueuedConnection)
         self.setWindowTitle("PARKER")
         self.resize(1120, 780)
         self.setMinimumSize(760, 580)
@@ -714,6 +735,16 @@ class MainWindow(QMainWindow):
         )
         self.hands_free_action.setChecked(str(self.settings.value("hands_free", "true")) == "true")
         self.hands_free_action.toggled.connect(self._hands_free_toggled)
+        self.wake_action = QAction("Wake word: “Hey Parker”", self, checkable=True)
+        self.wake_action.setToolTip(
+            "Listen for “Hey Parker” while PARKER is running. Only the name wakes it; "
+            "nothing else is kept or sent anywhere."
+        )
+        self.wake_action.setVisible(make_wake_detector is not None)
+        self.wake_action.setChecked(
+            make_wake_detector is not None and str(self.settings.value("wake_word", "false")) == "true"
+        )
+        self.wake_action.toggled.connect(self._wake_toggled)
         clear = QAction("Clear conversation", self)
         clear.triggered.connect(lambda: self.process("/reset"))
         about = QAction(f"Running locally · {MODEL}", self)
@@ -731,6 +762,7 @@ class MainWindow(QMainWindow):
         self.pair_action.triggered.connect(self.show_pairing)
         menu.addAction(self.voice_toggle)
         menu.addAction(self.hands_free_action)
+        menu.addAction(self.wake_action)
         menu.addAction(clear)
         menu.addSeparator()
         menu.addAction(self.hotkey_action)
@@ -843,7 +875,11 @@ class MainWindow(QMainWindow):
     def set_state(self, state: str) -> None:
         self.state = state
         self.orb.set_state(state)
-        self.status_label.setText(theme.STATUS_TEXT.get(state, ""))
+        self._update_wake_word()
+        status = theme.STATUS_TEXT.get(state, "")
+        if state == "idle" and self.wake_listening:
+            status += "  ·  SAY “HEY PARKER”"
+        self.status_label.setText(status)
         # One button, three jobs: talk when ready, finish while listening,
         # stop while PARKER is speaking.
         if state == "listening":
@@ -1171,6 +1207,7 @@ class MainWindow(QMainWindow):
             return
         self._listen_queued = True
         self._follow_up = False
+        self._update_wake_word()  # hand the microphone over straight away
         self._recording_limit.start(MAX_RECORDING_MS)
         if self.hands_free:
             self.conversation = True
@@ -1194,6 +1231,76 @@ class MainWindow(QMainWindow):
     def end_conversation(self) -> None:
         self.conversation = False
         self._follow_up = False
+        self._update_wake_word()
+
+    # ---- wake word ------------------------------------------------------------
+    @property
+    def wake_listening(self) -> bool:
+        """True while PARKER is waiting to hear its name."""
+        detector = self.wake_detector
+        return detector is not None and detector.running and not detector.paused
+
+    def _wake_wanted(self) -> bool:
+        """Listen for the name only when PARKER is free and isn't using the mic itself."""
+        return (self.wake_action.isChecked() and self.mic_ready and self.state == "idle"
+                and not self.conversation and not self._listen_queued)
+
+    def _update_wake_word(self) -> None:
+        if not hasattr(self, "wake_action"):
+            return  # still building the window
+        wanted = self._wake_wanted()
+        if self.wake_detector is None:
+            if not wanted:
+                return
+            try:
+                self.wake_detector = self._make_wake_detector(
+                    self._wake_bridge.woke.emit, self._wake_bridge.failed.emit
+                )
+            except Exception as err:
+                self._wake_failed(f"Wake word unavailable: {err}")
+                return
+            self.wake_detector.start()
+        if wanted:
+            self.wake_detector.resume()
+        else:
+            self.wake_detector.pause()
+
+    def _wake_toggled(self, on: bool) -> None:
+        self.settings.setValue("wake_word", "true" if on else "false")
+        if on:
+            self.chat.add("note", "Say “Hey Parker” any time PARKER is running. "
+                                  "Only the name wakes me; nothing else is kept or sent anywhere.")
+        if not on and self.wake_detector is not None:
+            self.wake_detector.stop()
+            self.wake_detector = None
+        self.set_state(self.state)
+
+    @Slot(str)
+    def _woke(self, rest: str) -> None:
+        if not (self.wake_action.isChecked() and self.state == "idle") or self.conversation:
+            if self.wake_detector is not None:
+                self._update_wake_word()
+            return
+        self.conversation = True  # carry on hands-free after the first answer
+        if self.tray is not None:
+            self.tray.setIcon(tray_icon("listening"))
+        if rest:
+            self.process(rest, spoken=True)  # "Hey Parker, what's on today?"
+        else:
+            # Answer like a person would, then listen (the reply's end starts it).
+            self.say_requested.emit(f"Yes, {OWNER_NAME}?")
+            self._update_wake_word()
+
+    @Slot(str)
+    def _wake_failed(self, message: str) -> None:
+        self.chat.add("error", message)
+        if self.wake_detector is not None:
+            self.wake_detector.stop()
+            self.wake_detector = None
+        self.wake_action.blockSignals(True)
+        self.wake_action.setChecked(False)
+        self.wake_action.blockSignals(False)
+        self.set_state(self.state)
 
     def _hands_free_toggled(self, on: bool) -> None:
         self.settings.setValue("hands_free", "true" if on else "false")
@@ -1368,6 +1475,8 @@ class MainWindow(QMainWindow):
             return
         if self.hotkey is not None:
             self.hotkey.stop()
+        if self.wake_detector is not None:
+            self.wake_detector.stop()
         self._stop_companion()
         if self.tray is not None:
             self.tray.hide()
@@ -1416,6 +1525,7 @@ def main(argv: list[str] | None = None) -> int:
         Assistant(memory=memory, agenda=agenda, calendar=calendar),
         make_speaker=None if args.no_voice else default_speaker,
         make_listener=None if args.no_voice else default_listener,
+        make_wake_detector=None if args.no_voice else default_wake_detector,
         start_hidden=args.background,
         apps=apps,
         reminders=reminders,

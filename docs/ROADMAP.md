@@ -7,7 +7,7 @@
 | **M3 – Desktop Experience** | PySide6 window, transcript, status indicators, voice visualiser | A usable Windows app with a clearly visible listening state | Complete |
 | **M4 – Skills & Actions** | Allowlisted tools: open apps, files, reminders, research, Google Calendar sync for the agenda, email | Every action is permissioned and tested | Complete (research and email later) |
 | **M5 – Android Companion** | Mobile UI with a secure connection to the laptop | Authenticated access and reliable reconnect | Complete |
-| **M6 – Advanced Features** | Hands-free conversation, wake word, proactive notifications, smart home | Opt-in triggers, privacy controls, safe failure | In progress: hands-free conversation done |
+| **M6 – Advanced Features** | Hands-free conversation, wake word, proactive notifications, smart home | Opt-in triggers, privacy controls, safe failure | In progress: hands-free conversation and wake word done |
 
 ## Possible improvements noted during M1
 

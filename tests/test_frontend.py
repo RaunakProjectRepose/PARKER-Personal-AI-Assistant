@@ -515,3 +515,114 @@ def test_threaded_hands_free_conversation(app):
     finally:
         window._quitting = True
         window.close()
+
+
+# ---- wake word ("Hey Parker") ---------------------------------------------------
+
+class FakeWakeDetector:
+    def __init__(self, on_wake, on_error):
+        self.on_wake, self.on_error = on_wake, on_error
+        self.running = False
+        self.paused = True
+        self.stopped = False
+
+    def start(self):
+        self.running = True
+
+    def stop(self):
+        self.running, self.stopped = False, True
+
+    def pause(self):
+        self.paused = True
+
+    def resume(self):
+        self.paused = False
+
+
+def wake_window(app, phrases, *, enabled=True):
+    speaker = FakeSpeaker()
+    listener = HandsFreeListener(phrases)
+    sent, detectors = [], []
+    assistant = Assistant(
+        generate=lambda m, h, **kw: sent.append(m) or f"Reply to {m}",
+        memory=Memory(":memory:"), agenda=Agenda(":memory:"), now=lambda: NOW,
+    )
+    settings = temp_settings()
+    settings.setValue("wake_word", "true" if enabled else "false")
+
+    def make_detector(on_wake, on_error):
+        detectors.append(FakeWakeDetector(on_wake, on_error))
+        return detectors[-1]
+
+    window = MainWindow(
+        assistant, make_speaker=lambda: speaker, make_listener=lambda wait: listener,
+        threaded=False, now=lambda: NOW, tray_available=lambda: False, make_hotkey=None,
+        settings=settings, make_wake_detector=make_detector,
+    )
+    return window, listener, speaker, sent, detectors
+
+
+def test_wake_word_is_off_by_default_and_hidden_without_a_detector(app):
+    window, _, _ = make_window(app)
+    assert not window.wake_action.isVisible() and not window.wake_action.isChecked()
+    window, _, _, _, detectors = wake_window(app, [], enabled=False)
+    assert detectors == [] and not window.wake_action.isChecked()
+
+
+def test_waits_for_the_name_only_when_idle(app):
+    window, _, _, _, detectors = wake_window(app, [])
+    settle(window, 600)  # the greeting is spoken first
+    assert len(detectors) == 1 and detectors[0].running
+    assert window.wake_listening and "HEY PARKER" in window.status_label.text()
+    window.set_state("speaking")
+    assert detectors[0].paused  # never listens to PARKER's own voice
+    window.set_state("idle")
+    assert not detectors[0].paused
+
+
+def test_hey_parker_answers_then_listens_hands_free(app):
+    window, listener, speaker, sent, detectors = wake_window(app, ["What's on today?"])
+    settle(window, 600)
+    detectors[0].paused = True  # the detector pauses itself when it hears the name
+    window._woke("")
+    assert speaker.spoken[-1] == "Yes, Raunak?"
+    settle(window)
+    assert sent == ["What's on today?"]
+    # After the reply it listened once more, heard nothing, and went back to waiting.
+    assert len(listener.waits) == 2 and window.conversation is False
+    assert not detectors[0].paused
+
+
+def test_request_in_the_same_breath_goes_straight_through(app):
+    window, listener, speaker, sent, detectors = wake_window(app, [])
+    settle(window, 600)
+    window._woke("what's on today?")
+    assert sent == ["what's on today?"]
+    assert ("user", "what's on today?") in [m[:2] for m in window.chat.messages]
+    settle(window)
+    assert len(listener.waits) == 1 and not detectors[0].paused
+
+
+def test_name_heard_while_busy_is_ignored(app):
+    window, listener, speaker, sent, detectors = wake_window(app, [])
+    settle(window, 600)
+    window.set_state("thinking")
+    window._woke("tell me a joke")
+    assert sent == []
+
+
+def test_switching_off_stops_listening_for_the_name(app):
+    window, _, _, _, detectors = wake_window(app, [])
+    settle(window, 600)
+    window.wake_action.setChecked(False)
+    assert detectors[0].stopped and window.wake_detector is None
+    assert window.settings.value("wake_word") == "false"
+    assert "HEY PARKER" not in window.status_label.text()
+
+
+def test_wake_word_problem_is_shown_and_switches_it_off(app):
+    window, _, _, _, detectors = wake_window(app, [])
+    settle(window, 600)
+    window._wake_failed("Wake word unavailable: no model")
+    assert window.chat.messages[-1] == ("error", "Wake word unavailable: no model")
+    assert not window.wake_action.isChecked() and detectors[0].stopped

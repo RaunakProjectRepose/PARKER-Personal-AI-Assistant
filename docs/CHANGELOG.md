@@ -2,6 +2,23 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## Unreleased – Milestone 6: "Hey Parker" wake word
+
+### Added
+- Opt-in wake word (Settings → **Wake word: "Hey Parker"**, off by default): say "Hey Parker"
+  and PARKER answers "Yes, Raunak?" and listens hands-free. A request in the same breath ("Hey
+  Parker, what's on today?") goes straight through. Also understands "Okay Parker", "Parker, …"
+  and the spellings Whisper uses for a quick "Parker" (Parka, Barker…); the name must come first,
+  so "I told Parker about it" doesn't wake it.
+- How it listens: the Silero voice detector skips silence and noise; each short burst of speech
+  (up to 10 s) is transcribed on the laptop by Whisper `tiny.en` (`PARKER_WAKE_MODEL`, downloaded
+  once, ~75 MB) and dropped straight away unless it starts with the name. Nothing is saved.
+- It listens for the name only while PARKER is idle: never while PARKER speaks, thinks or is
+  already listening, and the microphone is released when you press talk. The status line reads
+  "READY · SAY HEY PARKER" while it's waiting.
+- If the wake word can't start (no model, no microphone) the problem is shown and the setting
+  switches itself off. `python -m backend.wake_word` tests it on its own.
+
 ## 2026-11-27 – Milestone 6: hands-free conversation
 
 ### Added
