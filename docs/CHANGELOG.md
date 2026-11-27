@@ -2,7 +2,7 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
-## Unreleased – Milestone 6: "Hey Parker" wake word
+## 2026-11-27 – Milestone 6: "Hey Parker" wake word
 
 ### Added
 - Opt-in wake word (Settings → **Wake word: "Hey Parker"**, off by default): say "Hey Parker"
@@ -18,6 +18,11 @@ All notable changes to PARKER. Dates are when the change reached `main`.
   "READY · SAY HEY PARKER" while it's waiting.
 - If the wake word can't start (no model, no microphone) the problem is shown and the setting
   switches itself off. `python -m backend.wake_word` tests it on its own.
+- The chat says when the wake word is getting ready (the first use downloads the model) and
+  when it is listening; `PARKER_WAKE_DEBUG=1` prints everything it hears to the console.
+
+### Verified
+- Tested on the laptop with a real voice: "Hey Parker" wakes it in the app.
 
 ## 2026-11-27 – Milestone 6: hands-free conversation
 
