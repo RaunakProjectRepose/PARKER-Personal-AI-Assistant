@@ -59,6 +59,16 @@ apply on top.
 1. **Laptop:** install Tailscale from <https://tailscale.com/download/windows> and sign in.
 2. **Phone:** install **Tailscale** from the Play Store, sign in with the **same account**, and
    switch it on. Both devices now have a `100.x.y.z` address.
+
+   Check on the laptop that both are on the same network:
+
+   ```powershell
+   & "C:\Program Files\Tailscale\tailscale.exe" status
+   ```
+
+   It must list **both** the laptop and the phone. If only the laptop appears (or
+   `tailscale ping <phone 100.x>` says `no matching peer`), the phone is signed in to a different
+   Tailscale account: log out on the phone and sign in with the laptop's account.
 3. **Laptop, PowerShell as Administrator:** allow PARKER's port, but only from Tailscale devices:
 
    ```powershell
