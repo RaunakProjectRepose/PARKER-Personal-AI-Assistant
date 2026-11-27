@@ -88,9 +88,17 @@ class WakeWordDetector:
         speech_prob: Callable | None = None,
         open_stream: Callable | None = None,
         on_error: Callable[[str], None] = lambda message: None,
+        on_ready: Callable[[], None] = lambda: None,
+        on_heard: Callable[[str], None] | None = None,
     ) -> None:
         self._on_wake = on_wake
         self._on_error = on_error
+        self._on_ready = on_ready
+        # Debugging aid: called with every transcript, wake word or not.
+        self._on_heard = on_heard
+        if on_heard is None and os.environ.get("PARKER_WAKE_DEBUG"):
+            self._on_heard = lambda text: print(f"[wake word] heard: {text!r}", flush=True)
+        self.ready = False
         self._transcribe = transcribe
         self._prob = speech_prob
         self._open_stream = open_stream or _open_microphone
@@ -148,6 +156,8 @@ class WakeWordDetector:
         except SpeechInputError as err:
             self._on_error(str(err))
             return
+        self.ready = True
+        self._on_ready()
         while not self._stopped.is_set():
             if self._paused.is_set():
                 time.sleep(0.05)
@@ -186,7 +196,10 @@ class WakeWordDetector:
     def _check(self, audio) -> bool:
         if self._paused.is_set() or len(audio) < SAMPLE_RATE * 0.3:
             return False
-        rest = find_wake_word(self._transcribe(audio))
+        text = self._transcribe(audio)
+        if self._on_heard is not None:
+            self._on_heard(text)
+        rest = find_wake_word(text)
         if rest is None or self._paused.is_set():
             return False
         self._paused.set()  # stop listening for the name until PARKER is done
@@ -240,9 +253,13 @@ if __name__ == "__main__":
         print(f"  ✓ Woke up!{'  Request: ' + rest if rest else ''}")
         woke.set()
 
-    detector = WakeWordDetector(on_wake, on_error=lambda m: print(f"Problem: {m}", file=sys.stderr))
+    detector = WakeWordDetector(
+        on_wake,
+        on_error=lambda m: print(f"Problem: {m}", file=sys.stderr),
+        on_ready=lambda: print('Ready. Say "Hey Parker" (Ctrl+C to quit).'),
+        on_heard=lambda text: print(f"  heard: {text!r}"),
+    )
     detector.start()
-    print('Say "Hey Parker" (Ctrl+C to quit).')
     try:
         while True:
             if woke.wait(0.2):

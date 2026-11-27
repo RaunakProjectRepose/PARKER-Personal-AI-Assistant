@@ -115,10 +115,10 @@ MAX_RECORDING_MS = 30_000  # Recording always stops by itself after 30 s.
 FOLLOW_UP_DELAY_MS = 350  # pause after PARKER speaks before listening again
 
 
-def default_wake_detector(on_wake, on_error):
+def default_wake_detector(on_wake, on_error, on_ready):
     from backend.wake_word import WakeWordDetector
 
-    return WakeWordDetector(on_wake, on_error=on_error)
+    return WakeWordDetector(on_wake, on_error=on_error, on_ready=on_ready)
 
 
 class WakeBridge(QObject):
@@ -126,6 +126,7 @@ class WakeBridge(QObject):
 
     woke = Signal(str)  # what was said after "Hey Parker" ('' if nothing)
     failed = Signal(str)
+    ready = Signal()  # models loaded, now listening for the name
 BUBBLE_MAX_WIDTH = 560
 COLUMN_WIDTH = 760  # the chat and message bar share one centred reading column
 DRAWER_WIDTH = 360
@@ -626,6 +627,7 @@ class MainWindow(QMainWindow):
         self._wake_bridge = WakeBridge(self)
         self._wake_bridge.woke.connect(self._woke, Qt.ConnectionType.QueuedConnection)
         self._wake_bridge.failed.connect(self._wake_failed, Qt.ConnectionType.QueuedConnection)
+        self._wake_bridge.ready.connect(self._wake_ready, Qt.ConnectionType.QueuedConnection)
         self.setWindowTitle("PARKER")
         self.resize(1120, 780)
         self.setMinimumSize(760, 580)
@@ -1238,7 +1240,8 @@ class MainWindow(QMainWindow):
     def wake_listening(self) -> bool:
         """True while PARKER is waiting to hear its name."""
         detector = self.wake_detector
-        return detector is not None and detector.running and not detector.paused
+        return (detector is not None and detector.running and not detector.paused
+                and getattr(detector, "ready", True))
 
     def _wake_wanted(self) -> bool:
         """Listen for the name only when PARKER is free and isn't using the mic itself."""
@@ -1254,11 +1257,14 @@ class MainWindow(QMainWindow):
                 return
             try:
                 self.wake_detector = self._make_wake_detector(
-                    self._wake_bridge.woke.emit, self._wake_bridge.failed.emit
+                    self._wake_bridge.woke.emit, self._wake_bridge.failed.emit,
+                    self._wake_bridge.ready.emit,
                 )
             except Exception as err:
                 self._wake_failed(f"Wake word unavailable: {err}")
                 return
+            self.chat.add("note", "Getting the wake word ready… (the first time downloads a small "
+                                  "speech model, about 75 MB)")
             self.wake_detector.start()
         if wanted:
             self.wake_detector.resume()
@@ -1267,9 +1273,6 @@ class MainWindow(QMainWindow):
 
     def _wake_toggled(self, on: bool) -> None:
         self.settings.setValue("wake_word", "true" if on else "false")
-        if on:
-            self.chat.add("note", "Say “Hey Parker” any time PARKER is running. "
-                                  "Only the name wakes me; nothing else is kept or sent anywhere.")
         if not on and self.wake_detector is not None:
             self.wake_detector.stop()
             self.wake_detector = None
@@ -1290,6 +1293,12 @@ class MainWindow(QMainWindow):
             # Answer like a person would, then listen (the reply's end starts it).
             self.say_requested.emit(f"Yes, {OWNER_NAME}?")
             self._update_wake_word()
+
+    @Slot()
+    def _wake_ready(self) -> None:
+        self.chat.add("note", "Listening for “Hey Parker”. Only the name wakes me; "
+                              "nothing else is kept or sent anywhere.")
+        self.set_state(self.state)
 
     @Slot(str)
     def _wake_failed(self, message: str) -> None:

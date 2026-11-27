@@ -520,8 +520,9 @@ def test_threaded_hands_free_conversation(app):
 # ---- wake word ("Hey Parker") ---------------------------------------------------
 
 class FakeWakeDetector:
-    def __init__(self, on_wake, on_error):
-        self.on_wake, self.on_error = on_wake, on_error
+    def __init__(self, on_wake, on_error, on_ready):
+        self.on_wake, self.on_error, self.on_ready = on_wake, on_error, on_ready
+        self.ready = True
         self.running = False
         self.paused = True
         self.stopped = False
@@ -550,8 +551,8 @@ def wake_window(app, phrases, *, enabled=True):
     settings = temp_settings()
     settings.setValue("wake_word", "true" if enabled else "false")
 
-    def make_detector(on_wake, on_error):
-        detectors.append(FakeWakeDetector(on_wake, on_error))
+    def make_detector(on_wake, on_error, on_ready):
+        detectors.append(FakeWakeDetector(on_wake, on_error, on_ready))
         return detectors[-1]
 
     window = MainWindow(
@@ -626,3 +627,16 @@ def test_wake_word_problem_is_shown_and_switches_it_off(app):
     window._wake_failed("Wake word unavailable: no model")
     assert window.chat.messages[-1] == ("error", "Wake word unavailable: no model")
     assert not window.wake_action.isChecked() and detectors[0].stopped
+
+
+def test_wake_word_says_when_it_is_ready(app):
+    window, _, _, _, detectors = wake_window(app, [])
+    settle(window, 600)
+    detectors[0].ready = False  # still loading the model
+    window.set_state("idle")
+    assert "HEY PARKER" not in window.status_label.text()
+    assert any("Getting the wake word ready" in m[1] for m in window.chat.messages)
+    detectors[0].ready = True
+    window._wake_ready()
+    assert "HEY PARKER" in window.status_label.text()
+    assert window.chat.messages[-1][1].startswith("Listening for “Hey Parker”")
