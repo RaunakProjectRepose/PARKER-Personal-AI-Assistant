@@ -2,7 +2,7 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
-## Unreleased – Milestone 6: hands-free conversation
+## 2026-11-27 – Milestone 6: hands-free conversation
 
 ### Added
 - **Hands-free conversation** (on by default, "Hands-free conversation" in settings): press the
@@ -21,6 +21,10 @@ All notable changes to PARKER. Dates are when the change reached `main`.
 
 ### Changed
 - **Esc** while listening now cancels the recording and ends the conversation.
+
+### Verified
+- Tested on the laptop with a real voice: stops after a pause, listens again after each reply,
+  and ends on a sign-off.
 
 ## 2026-11-27 – Milestone 5: away from home (Android app 0.2.0)
 
