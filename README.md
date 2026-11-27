@@ -29,7 +29,10 @@ no subscriptions, and nothing you say leaves the machine.
   drawer that slides in only when you want it.
 
 
-- **Talk or type** — push-to-talk speech recognition with Faster-Whisper, or plain typing.
+- **Talk or type** — speech recognition with Faster-Whisper, or plain typing.
+- **Hands-free conversation** — press once and just talk: PARKER notices when you pause,
+  answers, and listens again, until you say "that's all", stay quiet for a few seconds or press
+  **Esc**. Switch it off in settings to go back to press-to-start, press-to-finish.
 - **Local brain** — Qwen 3.5 4B through Ollama, running fully on the GPU (~0.9 s per reply).
 - **Spoken replies** — Piper TTS with a British-English voice (`en_GB-alba-medium`).
 - **Conversation memory** — remembers the last ten exchanges within a session; `/reset` clears it.
@@ -84,8 +87,8 @@ told only about that one key combination and never sees your other typing. If an
 already uses Ctrl+Alt+P, PARKER picks a free alternative and tells you which. To check that
 Windows delivers a shortcut at all, run `python -m frontend.hotkey --test "Ctrl+Alt+P"`.
 
-Shortcuts: **Ctrl+Space** talk (press again when you've finished), **Esc** stop speaking or
-close the drawer, **Enter** send, **Ctrl+1** agenda, **Ctrl+2** memories. The mic button turns
+Shortcuts: **Ctrl+Space** talk (hands-free: just speak and pause; press again to finish early),
+**Esc** stop listening or speaking and end the conversation, or close the drawer, **Enter** send, **Ctrl+1** agenda, **Ctrl+2** memories. The mic button turns
 into a stop button while PARKER speaks. "Speak replies" and "Clear conversation" are in the
 settings menu (top right). Every chat command below also works in the message box.
 

@@ -91,7 +91,9 @@ from backend.main import (
     is_calendar_request,
     parse_calendar_request,
 )
+from backend.conversation import ending, farewell
 from backend.files import FileFinder, FoundFile, parse_find_request, summary
+from backend.speech_input import LISTEN_WAIT
 from backend.reminders import Reminders, announcement
 from backend.memory import Memory, MemoryStoreError
 from frontend import autostart, theme
@@ -109,6 +111,7 @@ from frontend.pairing import PairingDialog
 from frontend.worker import Worker, default_listener, default_speaker
 
 MAX_RECORDING_MS = 30_000  # Recording always stops by itself after 30 s.
+FOLLOW_UP_DELAY_MS = 350  # pause after PARKER speaks before listening again
 BUBBLE_MAX_WIDTH = 560
 COLUMN_WIDTH = 760  # the chat and message bar share one centred reading column
 DRAWER_WIDTH = 360
@@ -557,6 +560,7 @@ class MainWindow(QMainWindow):
     ask_requested = Signal(str)
     say_requested = Signal(str)
     listen_requested = Signal()
+    listen_hands_free_requested = Signal(float)
     load_requested = Signal()
     find_requested = Signal(str)
     add_event_requested = Signal(str, str, str, bool)
@@ -596,6 +600,11 @@ class MainWindow(QMainWindow):
         self._now = now
         self.state = "loading"
         self.voice_ready = self.mic_ready = False
+        # Hands-free conversation: after each reply PARKER listens again by itself.
+        self.conversation = False  # a hands-free conversation is going on
+        self._follow_up = False  # the current recording was started by PARKER, not you
+        self._listen_queued = False  # a recording has been asked for but not started
+        self._discard_heard = False  # Esc while listening: ignore what was recorded
         self.setWindowTitle("PARKER")
         self.resize(1120, 780)
         self.setMinimumSize(760, 580)
@@ -699,6 +708,12 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         self.voice_toggle = QAction("Speak replies", self, checkable=True, checked=True)
         self.voice_toggle.toggled.connect(self._voice_toggled)
+        self.hands_free_action = QAction("Hands-free conversation", self, checkable=True)
+        self.hands_free_action.setToolTip(
+            "Stop recording when you pause, and keep listening after each reply"
+        )
+        self.hands_free_action.setChecked(str(self.settings.value("hands_free", "true")) == "true")
+        self.hands_free_action.toggled.connect(self._hands_free_toggled)
         clear = QAction("Clear conversation", self)
         clear.triggered.connect(lambda: self.process("/reset"))
         about = QAction(f"Running locally · {MODEL}", self)
@@ -715,6 +730,7 @@ class MainWindow(QMainWindow):
         self.pair_action = QAction("Pair phone…", self)
         self.pair_action.triggered.connect(self.show_pairing)
         menu.addAction(self.voice_toggle)
+        menu.addAction(self.hands_free_action)
         menu.addAction(clear)
         menu.addSeparator()
         menu.addAction(self.hotkey_action)
@@ -743,6 +759,7 @@ class MainWindow(QMainWindow):
         self.ask_requested.connect(self.worker.ask)
         self.say_requested.connect(self.worker.say)
         self.listen_requested.connect(self.worker.listen)
+        self.listen_hands_free_requested.connect(self.worker.listen_hands_free)
         self.load_requested.connect(self.worker.load)
         self.find_requested.connect(self.worker.find_files)
         self.add_event_requested.connect(self.worker.add_calendar_event)
@@ -846,6 +863,11 @@ class MainWindow(QMainWindow):
         self.talk_button.setEnabled(can_use)
         if state != "listening":
             self._recording_limit.stop()
+        else:
+            self._listen_queued = False
+        if state == "idle" and self.conversation and not self._listen_queued:
+            # PARKER has finished (or had nothing to say): listen for the next thing.
+            QTimer.singleShot(FOLLOW_UP_DELAY_MS, self._continue_conversation)
         if self.tray is not None:
             self.tray.setIcon(tray_icon(state))
             self.tray.setToolTip(f"PARKER · {theme.STATUS_TEXT.get(state, '').title()}")
@@ -983,6 +1005,7 @@ class MainWindow(QMainWindow):
             self._told_about_hotkey = True
             self.tray.showMessage(
                 "PARKER is listening",
+                "Just speak; I'll answer when you pause." if self.hands_free else
                 f"Speak, then press {self.hotkey_text} again when you've finished.",
                 tray_icon("listening"),
                 4000,
@@ -1123,6 +1146,7 @@ class MainWindow(QMainWindow):
         if not text:
             return
         self.entry.clear()
+        self.end_conversation()  # typing means you're not talking hands-free
         self.process(text)
 
     def mic_clicked(self) -> None:
@@ -1131,23 +1155,65 @@ class MainWindow(QMainWindow):
         else:
             self.toggle_listening()
 
+    @property
+    def hands_free(self) -> bool:
+        return self.hands_free_action.isChecked() and self.worker.hands_free_ready
+
     def toggle_listening(self) -> None:
         if not self.mic_ready:
             return
         if self.state == "listening":
-            self.worker.stop_listening()
+            self.worker.stop_listening()  # "done talking": use what was said so far
             return
         if self.state == "speaking":
-            self.worker.stop_speaking()
+            self.worker.stop_speaking()  # interrupt PARKER to say something
+        if self._listen_queued:
+            return
+        self._listen_queued = True
+        self._follow_up = False
         self._recording_limit.start(MAX_RECORDING_MS)
-        self.listen_requested.emit()
+        if self.hands_free:
+            self.conversation = True
+            self.listen_hands_free_requested.emit(LISTEN_WAIT)
+        else:
+            self.listen_requested.emit()
+
+    @Slot()
+    def _continue_conversation(self) -> None:
+        if not (self.conversation and self.state == "idle" and self.mic_ready) or self._listen_queued:
+            return
+        if QApplication.activeModalWidget() is not None:
+            # A question is open (e.g. "Add to calendar?"): carry on once it's answered.
+            QTimer.singleShot(500, self._continue_conversation)
+            return
+        self._listen_queued = True
+        self._follow_up = True
+        self._recording_limit.start(MAX_RECORDING_MS)
+        self.listen_hands_free_requested.emit(LISTEN_WAIT)
+
+    def end_conversation(self) -> None:
+        self.conversation = False
+        self._follow_up = False
+
+    def _hands_free_toggled(self, on: bool) -> None:
+        self.settings.setValue("hands_free", "true" if on else "false")
+        if not on:
+            self.end_conversation()
 
     def stop_speaking(self) -> None:
         self.worker.stop_speaking()
 
     def escape(self) -> None:
-        if self.state == "speaking":
+        if self.state == "listening":
+            # Cancel: throw the recording away and stop the conversation.
+            self._discard_heard = True
+            self.end_conversation()
+            self.worker.stop_listening()
+        elif self.state == "speaking":
+            self.end_conversation()
             self.stop_speaking()
+        elif self.conversation:
+            self.end_conversation()
         elif self.drawer.is_open:
             self.drawer.close_drawer()
             self._sync_drawer_buttons()
@@ -1213,8 +1279,20 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def _heard(self, text: str) -> None:
+        follow_up, self._follow_up = self._follow_up, False
+        if self._discard_heard:
+            self._discard_heard = False
+            return
         if not text:
-            self.chat.add("note", "Sorry, I didn't catch that.")
+            self.end_conversation()
+            if not follow_up:  # you pressed talk and said nothing; after a reply, silence just ends it
+                self.chat.add("note", "Sorry, I didn't catch that.")
+            return
+        kind = ending(text) if self.conversation else None
+        if kind is not None:
+            self.end_conversation()
+            self.chat.add("user", text, meta="spoken")
+            self._say(farewell(kind, OWNER_NAME))
             return
         self.process(text, spoken=True)
 

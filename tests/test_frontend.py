@@ -366,3 +366,152 @@ def test_settings_menu_has_voice_toggle_and_clear(app):
     window.process("Hello")
     next(a for a in window.settings_button.menu().actions() if a.text() == "Clear conversation").trigger()
     assert window.assistant.history == []
+
+
+# ---- hands-free conversation ------------------------------------------------
+
+class HandsFreeListener:
+    """Hears each scripted phrase in turn; '' means nobody spoke."""
+
+    def __init__(self, phrases):
+        self.phrases = list(phrases)
+        self.waits = []
+
+    def listen(self):
+        raise AssertionError("hands-free mode should not use push-to-talk")
+
+    def listen_until_silence(self, should_stop, wait_seconds):
+        self.waits.append(wait_seconds)
+        return self.phrases.pop(0) if self.phrases else ""
+
+
+def hands_free_window(app, phrases, *, hands_free=True, voice=True):
+    speaker = FakeSpeaker()
+    listener = HandsFreeListener(phrases)
+    sent = []
+    assistant = Assistant(
+        generate=lambda m, h, **kw: sent.append(m) or f"Reply to {m}",
+        memory=Memory(":memory:"), agenda=Agenda(":memory:"), now=lambda: NOW,
+    )
+    settings = temp_settings()
+    settings.setValue("hands_free", "true" if hands_free else "false")
+    window = MainWindow(
+        assistant, make_speaker=(lambda: speaker) if voice else None,
+        make_listener=lambda wait: listener, threaded=False, now=lambda: NOW,
+        tray_available=lambda: False, make_hotkey=None, settings=settings,
+    )
+    return window, listener, speaker, sent
+
+
+def settle(window, ms=1500):
+    """Let queued follow-up timers run (the app waits briefly before listening again)."""
+    from PySide6.QtTest import QTest
+
+    end = time.monotonic() + ms / 1000
+    while time.monotonic() < end:
+        QTest.qWait(20)
+
+
+def test_hands_free_keeps_listening_after_each_reply_until_silence(app):
+    window, listener, speaker, sent = hands_free_window(app, ["What's the plan?", "And after that?"])
+    assert window.hands_free and window.hands_free_action.isChecked()
+    window.toggle_listening()  # one press starts the conversation
+    settle(window)
+    assert sent == ["What's the plan?", "And after that?"]
+    assert speaker.spoken[-2:] == ["Reply to What's the plan?", "Reply to And after that?"]
+    # The third recording heard nothing: the conversation ends quietly.
+    assert len(listener.waits) == 3
+    assert window.conversation is False and window.state == "idle"
+    assert ("note", "Sorry, I didn't catch that.") not in window.chat.messages
+
+
+def test_saying_thats_all_ends_with_a_short_farewell(app):
+    window, listener, speaker, sent = hands_free_window(app, ["Tell me a joke", "Thanks, that's all."])
+    window.toggle_listening()
+    settle(window)
+    assert sent == ["Tell me a joke"]  # the sign-off never reaches the model
+    assert speaker.spoken[-1] == "Anytime, Raunak."
+    assert len(listener.waits) == 2 and window.conversation is False
+
+
+def test_silence_on_the_first_press_still_says_so(app):
+    window, listener, _, _ = hands_free_window(app, [""])
+    window.toggle_listening()
+    settle(window, 600)
+    assert window.chat.messages[-1] == ("note", "Sorry, I didn't catch that.")
+    assert len(listener.waits) == 1
+
+
+def test_escape_ends_the_conversation(app):
+    window, listener, _, sent = hands_free_window(app, ["What's the plan?", "Next thing"])
+    window.toggle_listening()
+    window.escape()  # e.g. while PARKER replies
+    settle(window, 800)
+    assert sent == ["What's the plan?"] and len(listener.waits) == 1
+
+
+def test_typing_ends_the_conversation(app):
+    window, listener, _, sent = hands_free_window(app, ["Hello"], voice=False)
+    window.toggle_listening()
+    window.entry.setText("typed instead")
+    window.send_typed()
+    settle(window, 800)
+    assert sent == ["Hello", "typed instead"] and len(listener.waits) == 1
+
+
+def test_hands_free_can_be_switched_off_and_is_remembered(app):
+    window, listener, _, _ = hands_free_window(app, [], hands_free=False)
+    assert window.hands_free is False
+    listener.listen = lambda: "push to talk"
+    window.toggle_listening()
+    settle(window, 600)
+    assert listener.waits == [] and window.conversation is False
+    window.hands_free_action.setChecked(True)
+    assert window.settings.value("hands_free") == "true"
+
+
+def test_old_microphones_without_silence_detection_use_push_to_talk(app):
+    window, _, _ = make_window(app)  # FakeListener has only listen()
+    assert window.hands_free_action.isChecked() and window.hands_free is False
+    window.toggle_listening()
+    settle(window, 600)
+    assert window.conversation is False
+
+
+def test_threaded_hands_free_conversation(app):
+    """The real worker thread: listen, reply, listen again, end on silence."""
+    listener = HandsFreeListener(["First question", "Second question"])
+    sent = []
+    assistant = Assistant(
+        generate=lambda m, h, **kw: sent.append(m) or "Sure.",
+        memory=Memory(":memory:"), agenda=Agenda(":memory:"), now=lambda: NOW,
+    )
+    window = MainWindow(
+        assistant, make_speaker=FakeSpeaker, make_listener=lambda wait: listener,
+        threaded=True, now=lambda: NOW, tray_available=lambda: False, make_hotkey=None,
+        settings=temp_settings(),
+    )
+    errors = []
+    original_add = window.chat.add
+
+    def checked_add(*args, **kwargs):
+        try:
+            original_add(*args, **kwargs)
+        except RuntimeError as err:  # a bubble built on the worker thread
+            errors.append(str(err))
+
+    window.chat.add = checked_add
+    try:
+        end = time.monotonic() + 5
+        while time.monotonic() < end and not (window.mic_ready and window.state == "idle"):
+            settle(window, 20)
+        window.toggle_listening()
+        end = time.monotonic() + 8
+        while time.monotonic() < end and not (len(listener.waits) == 3 and not window.conversation):
+            settle(window, 50)
+        assert sent == ["First question", "Second question"]
+        assert len(listener.waits) == 3 and window.conversation is False
+        assert errors == []
+    finally:
+        window._quitting = True
+        window.close()

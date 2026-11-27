@@ -139,15 +139,31 @@ class Worker(QObject):
         """Speak a fixed line (greeting, confirmations) without asking the model."""
         self._speak(text)
 
+    @property
+    def hands_free_ready(self) -> bool:
+        """True if the microphone can tell by itself when you've stopped talking."""
+        return self.listener is not None and hasattr(self.listener, "listen_until_silence")
+
     @Slot()
     def listen(self) -> None:
+        self._listen(None)
+
+    @Slot(float)
+    def listen_hands_free(self, wait_seconds: float) -> None:
+        """Listen until you pause; hear '' if nobody speaks within `wait_seconds`."""
+        self._listen(wait_seconds if self.hands_free_ready else None)
+
+    def _listen(self, wait_seconds: float | None) -> None:
         if self.listener is None:
             self.failed.emit("The microphone isn't available.")
             return
         self._stop_listening.clear()
         self.status_changed.emit("listening")
         try:
-            text = self.listener.listen()
+            if wait_seconds is None:
+                text = self.listener.listen()
+            else:
+                text = self.listener.listen_until_silence(self._stop_listening.is_set, wait_seconds)
         except Exception as err:
             self.failed.emit(f"Microphone problem: {err}")
             text = None

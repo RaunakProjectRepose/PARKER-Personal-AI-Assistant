@@ -2,6 +2,26 @@
 
 All notable changes to PARKER. Dates are when the change reached `main`.
 
+## Unreleased – Milestone 6: hands-free conversation
+
+### Added
+- **Hands-free conversation** (on by default, "Hands-free conversation" in settings): press the
+  mic, Ctrl+Space or Ctrl+Alt+P once and just talk. PARKER stops recording when you pause
+  (1.2 s), answers, then listens again by itself.
+- The conversation ends when nobody speaks for 8 seconds after a reply (quietly, no "didn't catch
+  that"), when you say a clear sign-off ("thanks", "that's all", "stop", "bye", "good night"),
+  which PARKER answers briefly without asking the model, when you press **Esc**, or when you type.
+  Sign-offs are recognised only as the whole message, so "stop the timer" still works.
+- Pressing the mic while PARKER speaks interrupts it and listens straight away; pressing it
+  while listening finishes early as before.
+- Pauses are detected with the Silero voice-activity model that ships inside Faster-Whisper, so
+  nothing new is installed and nothing leaves the laptop. Recording still stops after 30 s.
+- `PARKER_END_SILENCE` and `PARKER_LISTEN_WAIT` tune the pause length and the wait;
+  `python -m backend.speech_input --hands-free` tests it on its own.
+
+### Changed
+- **Esc** while listening now cancels the recording and ends the conversation.
+
 ## 2026-11-27 – Milestone 5: away from home (Android app 0.2.0)
 
 ### Added
