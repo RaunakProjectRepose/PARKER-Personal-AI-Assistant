@@ -199,6 +199,7 @@ memory/              # your private memory database (ignored by Git)
 ```
 
 More detail: [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) ·
+[Phase 2 plan](docs/PHASE_2.md) ·
 [Changelog](docs/CHANGELOG.md) · [Credits](docs/CREDITS.md)
 
 ## Security and privacy
